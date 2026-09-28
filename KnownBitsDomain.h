@@ -22,46 +22,57 @@
 #ifndef KNOWN_BITS_DOMAIN_H
 #define KNOWN_BITS_DOMAIN_H
 
+#include "llvm/ADT/APInt.h"
+#include "llvm/Support/KnownBits.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace known_bits {
 
 struct KnownBitsState {
-  /// @brief bit mask of abstract states for each bit.
-  /// - "bottom" occurs when neigher can_be_one or can_be_zero.
-  /// - "top" occurs when both can_be_one and can_be_zero.
-  /// The default is therefore "bottom" for all bits
-  unsigned int can_be_one = 0;
-  unsigned int can_be_zero = 0;
+private:
+  KnownBitsState(unsigned long long zeroes, unsigned long long ones, unsigned int nbits = 128)
+      : nbits(nbits), zeroes(zeroes), ones(ones) {}
 
-  KnownBitsState() = default;
-  KnownBitsState(unsigned int one, unsigned int zero) : can_be_one(one), can_be_zero(zero) {}
-  KnownBitsState bottom() { return KnownBitsState(0, 0); }
-  KnownBitsState top() { return KnownBitsState(~0, ~0); }
+public:
+  unsigned int nbits = 128; // size of long long
+  unsigned long long zeroes = 0;
+  unsigned long long ones = 0;
 
-  bool isBottom() const { return ~(can_be_one | can_be_zero); }
-  bool isTop() const { return (can_be_one & can_be_zero); }
+  /// @brief Create a known bits state (initially "bottom", all impossible) of the desired size.
+  /// @param nbits The number of bits in the underlying data type.
+  KnownBitsState(unsigned int nbits = 128) : nbits(nbits) {}
+  static KnownBitsState top() { return KnownBitsState(~0, ~0); }
+  static KnownBitsState bottom() { return KnownBitsState(0, 0); }
+  static KnownBitsState fromConstant(llvm::APInt value) {
+    return KnownBitsState(~value.getZExtValue(), value.getZExtValue(), value.getBitWidth());
+  }
 
-  /// @brief A 'join' is a logical or.
+  /// @brief A 'join' is a logical or. We start from an impossible "bottom" state and can only move
+  /// upwards through the lattice towards a real possible value, the LFP
   static KnownBitsState join(const KnownBitsState &lhs, const KnownBitsState &rhs) {
-    return KnownBitsState(lhs.can_be_one | rhs.can_be_one, lhs.can_be_zero | rhs.can_be_zero);
+    KnownBitsState state;
+    state.nbits = lhs.nbits > rhs.nbits ? lhs.nbits : rhs.nbits;
+    state.zeroes = lhs.zeroes | rhs.zeroes;
+    state.ones = lhs.ones | rhs.ones;
+    return state;
   }
 
-  bool operator==(const KnownBitsState &other) const {
-    return (can_be_one == other.can_be_one) && (can_be_zero == other.can_be_zero);
-  }
-  bool operator!=(const KnownBitsState &other) const {
-    return (can_be_one != other.can_be_one) || (can_be_zero != other.can_be_zero);
+  /// @brief Get a mask of which bits are actually considered
+  unsigned long long mask() const { return (1 << nbits) - 1; }
+
+  bool operator==(KnownBitsState &other) const {
+    unsigned long long m = mask();
+    return ((zeroes & m) == (other.zeroes & m)) && ((ones & m) == (other.ones & m));
   }
 
-  /// @brief It's uglib but get a string of bits for (T)op, (B)ottom, 0, 1.
+  /// @brief It's ugly but get a string of bits for top, bottom, 0, and 1.
   /// @param os
   void print(llvm::raw_ostream &os) const {
     bool one, zero;
-    for (int i = 31; i >= 0; --i) {
-      one = (can_be_one >> i) & 1;
-      zero = (can_be_zero >> i) & 1;
-      os << (one ? (zero ? "T" : "1") : (zero ? "0" : "B"));
+    for (unsigned int i = nbits; --i > 0;) { // decrement `i` _before_ entering the loop
+      one = (ones >> i) & 1;
+      zero = (zeroes >> i) & 1;
+      os << (one ? (zero ? "\22A4" : "1") : (zero ? "0" : "\22A5"));
     };
   }
 };
