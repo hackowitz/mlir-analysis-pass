@@ -1,4 +1,4 @@
-//===- ZeroDomain.h - The abstract domain ---------------------------------===//
+//===- KnownBitsDomain.h - The abstract domain ----------------------------===//
 //
 // A four-point lattice recording whether an integer value is known to be zero.
 //
@@ -24,7 +24,7 @@
 
 #include "llvm/Support/raw_ostream.h"
 
-namespace zero {
+namespace known_bits {
 
 enum class Kind { Bottom, Zero, NonZero, Top };
 
@@ -42,19 +42,19 @@ inline const char *name(Kind kind) {
   return "top";
 }
 
-struct ZeroState {
+struct KnownBitsState {
   Kind kind = Kind::Bottom;
 
-  ZeroState() = default;
-  /* implicit */ ZeroState(Kind kind) : kind(kind) {}
+  KnownBitsState() = default;
+  /* implicit */ KnownBitsState(Kind kind) : kind(kind) {}
 
-  static ZeroState bottom() { return Kind::Bottom; }
-  static ZeroState top() { return Kind::Top; }
+  static KnownBitsState bottom() { return Kind::Bottom; }
+  static KnownBitsState top() { return Kind::Top; }
 
   bool isBottom() const { return kind == Kind::Bottom; }
 
   /// Least upper bound.  Two disagreeing facts lose all information.
-  static ZeroState join(const ZeroState &lhs, const ZeroState &rhs) {
+  static KnownBitsState join(const KnownBitsState &lhs, const KnownBitsState &rhs) {
     if (lhs.kind == Kind::Bottom)
       return rhs;
     if (rhs.kind == Kind::Bottom)
@@ -64,18 +64,17 @@ struct ZeroState {
     return top();
   }
 
-  bool operator==(const ZeroState &other) const { return kind == other.kind; }
-  bool operator!=(const ZeroState &other) const { return kind != other.kind; }
+  bool operator==(const KnownBitsState &other) const { return kind == other.kind; }
+  bool operator!=(const KnownBitsState &other) const { return kind != other.kind; }
 
   void print(llvm::raw_ostream &os) const { os << name(kind); }
 };
 
-inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
-                                     const ZeroState &state) {
+inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const KnownBitsState &state) {
   state.print(os);
   return os;
 }
 
-} // namespace zero
+} // namespace known_bits
 
 #endif
