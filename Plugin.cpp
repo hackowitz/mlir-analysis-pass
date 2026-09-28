@@ -25,7 +25,7 @@ namespace {
 struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(KnownBitsAnalysisPass)
 
-  StringRef getArgument() const final { return "zero-analysis"; }
+  StringRef getArgument() const final { return "known-bits-analysis"; }
 
   StringRef getDescription() const final {
     return "Determine which integer values are known zero or known nonzero";

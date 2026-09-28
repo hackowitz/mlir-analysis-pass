@@ -26,9 +26,9 @@ void KnownBitsAnalysis::setToEntryState(KnownBitsLattice *lattice) {
   propagateIfChanged(lattice, lattice->join(KnownBitsState::top()));
 }
 
-LogicalResult KnownBitsAnalysis::visitOperation(Operation *op,
-                                                ArrayRef<const KnownBitsLattice *> operands,
-                                                ArrayRef<KnownBitsLattice *> results) {
+LogicalResult KnownBitsAnalysis::visitOperation(
+    Operation *op, ArrayRef<const KnownBitsLattice *> operands, ArrayRef<KnownBitsLattice *> results
+) {
   // Raising a result to top says "this operation could produce anything",
   // which is always a sound answer and is what every unhandled case does.
   auto unknown = [&] {
