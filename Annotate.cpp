@@ -9,12 +9,10 @@
 
 using namespace mlir;
 
-namespace zero {
+namespace known_bits {
 
-void printAnnotated(
-    Operation *root,
-    llvm::function_ref<std::string(Value, AsmState &)> describe,
-    llvm::raw_ostream &os) {
+void printAnnotated(Operation *root, llvm::function_ref<std::string(Value, AsmState &)> describe,
+                    llvm::raw_ostream &os) {
   // Print once with a location map, so annotations can be keyed to the lines
   // the printer actually produced -- including its choice of SSA names,
   // aliases, and nesting.  Recomputing those by hand would drift.
@@ -86,4 +84,4 @@ void printAnnotated(
   }
 }
 
-} // namespace zero
+} // namespace known_bits

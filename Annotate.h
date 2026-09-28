@@ -7,23 +7,22 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ZERO_ANNOTATE_H
-#define ZERO_ANNOTATE_H
+#ifndef KNOWN_BITS_ANNOTATE_H
+#define KNOWN_BITS_ANNOTATE_H
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace zero {
+namespace known_bits {
 
 /// `describe` returns the annotation for a value, or an empty string to leave
 /// that value unannotated.  It is passed an AsmState so it can print SSA names
 /// that match the listing.
-void printAnnotated(
-    mlir::Operation *root,
-    llvm::function_ref<std::string(mlir::Value, mlir::AsmState &)> describe,
-    llvm::raw_ostream &os);
+void printAnnotated(mlir::Operation *root,
+                    llvm::function_ref<std::string(mlir::Value, mlir::AsmState &)> describe,
+                    llvm::raw_ostream &os);
 
-} // namespace zero
+} // namespace known_bits
 
 #endif
