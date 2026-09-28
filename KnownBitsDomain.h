@@ -1,10 +1,10 @@
 //===- KnownBitsDomain.h - The abstract domain ----------------------------===//
 //
-// A four-point lattice recording whether an integer value is known to be zero.
+// A four-point lattice recording whether a bit value is known to be zero.
 //
 //        Top          nothing is known
 //       /   \
-//    Zero  NonZero
+//    Zero  One
 //       \   /
 //       Bottom       unreachable, or not yet analyzed
 //
@@ -19,55 +19,51 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ZERO_DOMAIN_H
-#define ZERO_DOMAIN_H
+#ifndef KNOWN_BITS_DOMAIN_H
+#define KNOWN_BITS_DOMAIN_H
 
 #include "llvm/Support/raw_ostream.h"
 
 namespace known_bits {
 
-enum class Kind { Bottom, Zero, NonZero, Top };
-
-inline const char *name(Kind kind) {
-  switch (kind) {
-  case Kind::Bottom:
-    return "bottom";
-  case Kind::Zero:
-    return "zero";
-  case Kind::NonZero:
-    return "nonzero";
-  case Kind::Top:
-    return "top";
-  }
-  return "top";
-}
-
 struct KnownBitsState {
-  Kind kind = Kind::Bottom;
+  /// @brief bit mask of abstract states for each bit.
+  /// - "bottom" occurs when neigher can_be_one or can_be_zero.
+  /// - "top" occurs when both can_be_one and can_be_zero.
+  /// The default is therefore "bottom" for all bits
+  unsigned int can_be_one = 0;
+  unsigned int can_be_zero = 0;
 
   KnownBitsState() = default;
-  /* implicit */ KnownBitsState(Kind kind) : kind(kind) {}
+  KnownBitsState(unsigned int one, unsigned int zero) : can_be_one(one), can_be_zero(zero) {}
+  KnownBitsState bottom() { return KnownBitsState(0, 0); }
+  KnownBitsState top() { return KnownBitsState(~0, ~0); }
 
-  static KnownBitsState bottom() { return Kind::Bottom; }
-  static KnownBitsState top() { return Kind::Top; }
+  bool isBottom() const { return ~(can_be_one | can_be_zero); }
+  bool isTop() const { return (can_be_one & can_be_zero); }
 
-  bool isBottom() const { return kind == Kind::Bottom; }
-
-  /// Least upper bound.  Two disagreeing facts lose all information.
+  /// @brief A 'join' is a logical or.
   static KnownBitsState join(const KnownBitsState &lhs, const KnownBitsState &rhs) {
-    if (lhs.kind == Kind::Bottom)
-      return rhs;
-    if (rhs.kind == Kind::Bottom)
-      return lhs;
-    if (lhs.kind == rhs.kind)
-      return lhs;
-    return top();
+    return KnownBitsState(lhs.can_be_one | rhs.can_be_one, lhs.can_be_zero | rhs.can_be_zero);
   }
 
-  bool operator==(const KnownBitsState &other) const { return kind == other.kind; }
-  bool operator!=(const KnownBitsState &other) const { return kind != other.kind; }
+  bool operator==(const KnownBitsState &other) const {
+    return (can_be_one == other.can_be_one) && (can_be_zero == other.can_be_zero);
+  }
+  bool operator!=(const KnownBitsState &other) const {
+    return (can_be_one != other.can_be_one) || (can_be_zero != other.can_be_zero);
+  }
 
-  void print(llvm::raw_ostream &os) const { os << name(kind); }
+  /// @brief It's uglib but get a string of bits for (T)op, (B)ottom, 0, 1.
+  /// @param os
+  void print(llvm::raw_ostream &os) const {
+    bool one, zero;
+    for (int i = 31; i >= 0; --i) {
+      one = (can_be_one >> i) & 1;
+      zero = (can_be_zero >> i) & 1;
+      os << (one ? (zero ? "T" : "1") : (zero ? "0" : "B"));
+    };
+  }
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const KnownBitsState &state) {
