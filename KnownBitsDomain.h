@@ -29,9 +29,6 @@
 namespace known_bits {
 
 struct KnownBitsState {
-private:
-  KnownBitsState(unsigned long long zeroes, unsigned long long ones, unsigned int nbits = 128)
-      : nbits(nbits), zeroes(zeroes), ones(ones) {}
 
 public:
   unsigned int nbits = 128; // size of long long
@@ -40,11 +37,14 @@ public:
 
   /// @brief Create a known bits state (initially "bottom", all impossible) of the desired size.
   /// @param nbits The number of bits in the underlying data type.
-  KnownBitsState(unsigned int nbits = 128) : nbits(nbits) {}
+  KnownBitsState(
+      unsigned int nbits = 128, unsigned long long zeroes = 0, unsigned long long ones = 0
+  )
+      : nbits(nbits), zeroes(zeroes), ones(ones) {}
   static KnownBitsState top() { return KnownBitsState(~0, ~0); }
   static KnownBitsState bottom() { return KnownBitsState(0, 0); }
   static KnownBitsState fromConstant(llvm::APInt value) {
-    return KnownBitsState(~value.getZExtValue(), value.getZExtValue(), value.getBitWidth());
+    return KnownBitsState(value.getBitWidth(), ~value.getZExtValue(), value.getZExtValue());
   }
 
   /// @brief A 'join' is a logical or. We start from an impossible "bottom" state and can only move
@@ -59,11 +59,14 @@ public:
 
   /// @brief Get a mask of which bits are actually considered
   unsigned long long mask() const { return (1 << nbits) - 1; }
+  unsigned long long tops() const { return zeroes & ones & mask(); }
+  unsigned long long bottoms() const { return ~zeroes & ~ones & mask(); }
 
-  bool operator==(KnownBitsState &other) const {
-    unsigned long long m = mask();
-    return ((zeroes & m) == (other.zeroes & m)) && ((ones & m) == (other.ones & m));
-  }
+  /// @brief The minimum is bits that can only be 1 and not 0
+  unsigned long long minPossible() const { return ones & ~zeroes; }
+
+  /// @brief The maximum is all bits that can be 1
+  unsigned long long maxPossible() const { return ones; }
 
   /// @brief It's ugly but get a string of bits for top, bottom, 0, and 1.
   /// @param os
@@ -74,6 +77,74 @@ public:
       zero = (zeroes >> i) & 1;
       os << (one ? (zero ? "\22A4" : "1") : (zero ? "0" : "\22A5"));
     };
+  }
+
+  bool operator==(const KnownBitsState &other) const {
+    unsigned long long m = mask();
+    return ((zeroes & m) == (other.zeroes & m)) && ((ones & m) == (other.ones & m));
+  }
+
+  /// @brief Abstrat operator - bits are 0 if either side is 0 and 1 if both sides are 1
+  KnownBitsState operator&(const KnownBitsState &other) const {
+    return KnownBitsState(
+        nbits > other.nbits ? nbits : other.nbits, zeroes | other.zeroes, ones & other.ones
+    );
+  }
+
+  /// @brief Abstrat operator - bits are 1 if either side is 1 and 0 if both sides are 0
+  KnownBitsState operator|(const KnownBitsState &other) const {
+    return KnownBitsState(
+        nbits > other.nbits ? nbits : other.nbits, //
+        zeroes & other.zeroes,
+        ones | other.ones
+    );
+  }
+
+  /// @brief Abstract operator - bits are 0 if sides are the same and 1 if they are different
+  KnownBitsState operator^(const KnownBitsState &other) const {
+    return KnownBitsState(
+        nbits > other.nbits ? nbits : other.nbits,
+        (zeroes & other.zeroes) | (ones & other.ones),
+        (ones & other.zeroes) | (zeroes & other.ones)
+    );
+  }
+
+  /// @brief Abstract operator - shift left by some number of bits
+  KnownBitsState operator<<(const KnownBitsState &other) const {
+    // shift left by constant
+    if (!other.tops()) {
+      // if the other is known, it's value is just it's ones
+      return KnownBitsState(nbits, zeroes << other.ones, ones << other.ones);
+    }
+    // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
+    return KnownBitsState(nbits, ~0, ~0 << other.minPossible());
+  }
+
+  /// @brief Abstract operator - shift right by some number of bits
+  KnownBitsState operator>>(const KnownBitsState &other) const {
+    // shift right by constant
+    if (!other.tops()) {
+      // if the other is known, it's value is just it's ones
+      return KnownBitsState(nbits, zeroes >> other.ones, ones >> other.ones);
+    }
+    // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
+    return KnownBitsState(nbits, ~0, ~0 >> other.minPossible());
+  }
+
+  KnownBitsState zeroExtend(unsigned int width) const {
+    return KnownBitsState(width, zeroes & mask(), ones & mask());
+  }
+
+  /// @brief Very ugly way to sign extend manually. I sure hope the complier makes this good
+  KnownBitsState signExtend(unsigned int width) const {
+    KnownBitsState other = zeroExtend(width);
+    unsigned long long msb = 1 << (nbits - 1);
+    unsigned long long ext_mask = other.mask() & ~mask();
+    if (zeroes & msb)
+      other.zeroes |= ext_mask;
+    if (ones & msb)
+      other.ones |= ext_mask;
+    return other;
   }
 };
 

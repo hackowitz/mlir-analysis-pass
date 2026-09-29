@@ -53,14 +53,14 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
       if (!lattice)
         return {};
-      known_bits::Kind kind = lattice->getValue().kind;
+      known_bits::KnownBitsState state = lattice->getValue();
       // Top and bottom say nothing; printing them would bury the real facts.
-      if (kind == known_bits::Kind::Top || kind == known_bits::Kind::Bottom)
+      if (state.bottoms() || state.tops() == state.mask())
         return {};
       std::string description;
       llvm::raw_string_ostream os(description);
       value.printAsOperand(os, asmState);
-      os << " is " << known_bits::name(kind);
+      os << " is " << state;
       return description;
     };
 
@@ -78,6 +78,7 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
 extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo mlirGetPassPluginInfo() {
   // LLVM_VERSION_STRING is baked in at compile time and checked by mlir-opt at
   // load time, which is what turns an ABI mismatch into a clear diagnostic.
-  return {MLIR_PLUGIN_API_VERSION, "KnownBitsAnalysis", LLVM_VERSION_STRING,
-          []() { PassRegistration<KnownBitsAnalysisPass>(); }};
+  return {MLIR_PLUGIN_API_VERSION, "KnownBitsAnalysis", LLVM_VERSION_STRING, []() {
+            PassRegistration<KnownBitsAnalysisPass>();
+          }};
 }
