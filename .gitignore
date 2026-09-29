@@ -1,3 +1,4 @@
+.envrc
 .vscode/
 sqlite-version-*/
 llvm-project/

@@ -3,7 +3,7 @@
 #
 #   ./run.sh input.mlir
 #
-# The plugin is ZeroAnalysis.dylib on macOS and ZeroAnalysis.so on Linux and
+# The plugin is KnownBitsAnalysis.dylib on macOS and KnownBitsAnalysis.so on Linux and
 # WSL2, so probe for it rather than hard-coding a suffix.  Set PLUGIN or
 # BUILD_DIR to override.
 set -eu
@@ -11,7 +11,7 @@ set -eu
 BUILD_DIR="${BUILD_DIR:-build}"
 
 if [ -z "${PLUGIN:-}" ]; then
-  for candidate in "$BUILD_DIR"/ZeroAnalysis.so "$BUILD_DIR"/ZeroAnalysis.dylib; do
+  for candidate in "$BUILD_DIR"/KnownBitsAnalysis.so "$BUILD_DIR"/KnownBitsAnalysis.dylib; do
     if [ -f "$candidate" ]; then
       PLUGIN="$candidate"
       break
@@ -32,5 +32,5 @@ fi
 # stdout is the unchanged IR and stderr is the annotated listing; send the
 # listing to this script's stdout so it can be piped or paged.
 mlir-opt --load-pass-plugin="$PLUGIN" \
-         --pass-pipeline='builtin.module(zero-analysis)' \
+         --pass-pipeline='builtin.module(known-bits-analysis)' \
          "$@" 2>&1 1>/dev/null
