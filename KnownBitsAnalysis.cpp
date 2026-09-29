@@ -57,40 +57,33 @@ LogicalResult KnownBitsAnalysis::visitOperation(
   // Match the LLVM dialect operation, coopy/pasted from https://mlir.llvm.org/docs/Dialects/LLVM/
   // Start with the simplest: bitwise/binary operations
   if (isa<LLVM::AndOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     propagateIfChanged(result, result->join(operands[0]->getValue() & operands[1]->getValue()));
     return success();
   }
   if (isa<LLVM::OrOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     propagateIfChanged(result, result->join(operands[0]->getValue() | operands[1]->getValue()));
     return success();
   }
   if (isa<LLVM::XOrOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     propagateIfChanged(result, result->join(operands[0]->getValue() | operands[1]->getValue()));
     return success();
   }
   if (isa<LLVM::ShlOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     propagateIfChanged(result, result->join(operands[0]->getValue() << operands[1]->getValue()));
     return success();
   }
   if (isa<LLVM::LShrOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     propagateIfChanged(result, result->join(operands[0]->getValue() >> operands[1]->getValue()));
     return success();
   }
   if (isa<LLVM::AShrOp>(op))
     return unknown(); // I'm choosing to defer this one
   if (isa<LLVM::SExtOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
     propagateIfChanged(result, result->join(operands[0]->getValue().signExtend(nbits)));
     return success();
   }
   if (isa<LLVM::ZExtOp>(op)) {
-    llvm::dbgs() << "Op:" << *op << "\n";
     auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
     propagateIfChanged(result, result->join(nbits));
     return success();
