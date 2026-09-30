@@ -91,7 +91,7 @@ LogicalResult KnownBitsAnalysis::visitOperation(
       else if (isa<LLVM::OrOp>(op))
         known = lhs | rhs;
       else if (isa<LLVM::XOrOp>(op))
-        known = lhs | rhs;
+        known = lhs ^ rhs;
       else if (isa<LLVM::ShlOp>(op))
         known = lhs << rhs;
       else if (isa<LLVM::LShrOp>(op))
