@@ -45,7 +45,7 @@ public:
   /// @brief Create a known bits state (initially "bottom", all impossible) of the desired size.
   /// @param nbits The number of bits in the underlying data type.
   KnownBitsState(ull nbits = ULLONG_WIDTH, ull zeroes = 0ULL, ull ones = 0ULL)
-      : nbits(nbits), zeroes(zeroes), ones(ones) {}
+      : nbits(nbits), zeroes(zeroes & MASK(nbits)), ones(ones & MASK(nbits)) {}
 
   /// @brief Top is {0, 1} for the bit width, and {} for bits out of range.
   static KnownBitsState top(ull nbits = ULLONG_WIDTH) {
@@ -213,6 +213,8 @@ public:
       other.ones |= ext_mask;
     return other;
   }
+
+  KnownBitsState trunc(ull width) const { return KnownBitsState(width, zeroes, ones); }
 
   // logical comparisons, sorted by occurrences in sqlite3
 

@@ -75,7 +75,7 @@ LogicalResult KnownBitsAnalysis::visitOperation(
     else if (isa<LLVM::AShrOp>(op))
       return unknown(); // I'm choosing to defer this one
     else if (isa<LLVM::TruncOp>(op))
-      return unknown(); // TODO
+      known = lhs.trunc(nbits);
     else if (isa<LLVM::CountLeadingZerosOp>(op))
       // There are plenty of edge cases I'm ignoring for this assignment...
       return unknown(); // TODO
