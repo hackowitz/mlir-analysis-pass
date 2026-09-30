@@ -24,7 +24,7 @@ using namespace mlir;
 namespace known_bits {
 
 void KnownBitsAnalysis::setToEntryState(KnownBitsLattice *lattice) {
-  propagateIfChanged(lattice, lattice->join(KnownBitsState::bottom()));
+  propagateIfChanged(lattice, lattice->join(KnownBitsState::top()));
 }
 
 LogicalResult KnownBitsAnalysis::visitOperation(
@@ -45,8 +45,8 @@ LogicalResult KnownBitsAnalysis::visitOperation(
     return unknown();
 
   KnownBitsLattice *result = results[0];
-  KnownBitsState known;
   auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
+  KnownBitsState known = KnownBitsState::top(nbits);
 
   // The first few cases bring numeric data into our abstract domain;
   // without some rule of this kind the analysis would have no facts to propagate at all.
@@ -152,11 +152,11 @@ LogicalResult KnownBitsAnalysis::visitOperation(
       else if (isa<LLVM::SelectOp>(op)) //  3 llvm.select
         return unknown();
       else {
-        llvm::dbgs() << "// Unknown binary op: " << *op << "\n";
+        // llvm::dbgs() << "// Unknown binary op: " << *op << "\n";
         return unknown();
       }
     } else {
-      llvm::dbgs() << "// Unknown unary op: " << *op << "\n";
+      // llvm::dbgs() << "// Unknown unary op: " << *op << "\n";
       return unknown();
     }
   } else {

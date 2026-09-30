@@ -28,10 +28,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 // I've never written macros before but they seem simple enough
-// MAX gets used in binary comparisons but might produce tops when it should bottoms
-// FIXME: ...or worse, fail to sign-extend the smaller value and be incorrect analysis
 #define MASK(n) ((n) < ULLONG_WIDTH ? (1ULL << (n)) - 1ULL : ~0ULL)
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 using ull = unsigned long long;
@@ -124,18 +121,18 @@ public:
 
   /// @brief Abstrat operator - bits are 0 if either side is 0 and 1 if both sides are 1
   KnownBitsState operator&(const KnownBitsState &other) const {
-    return KnownBitsState(MAX(nbits, other.nbits), zeroes | other.zeroes, ones & other.ones);
+    return KnownBitsState(MIN(nbits, other.nbits), zeroes | other.zeroes, ones & other.ones);
   }
 
   /// @brief Abstrat operator - bits are 1 if either side is 1 and 0 if both sides are 0
   KnownBitsState operator|(const KnownBitsState &other) const {
-    return KnownBitsState(MAX(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
+    return KnownBitsState(MIN(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
   }
 
   /// @brief Abstract operator - bits are 0 if sides are the same and 1 if they are different
   KnownBitsState operator^(const KnownBitsState &other) const {
     return KnownBitsState(
-        MAX(nbits, other.nbits),
+        MIN(nbits, other.nbits),
         (zeroes & other.zeroes) | (ones & other.ones),
         (ones & other.zeroes) | (zeroes & other.ones)
     );
