@@ -162,6 +162,15 @@ public:
     return KnownBitsState(nbits, ~0ULL, ~0ULL >> other.minPossible());
   }
 
+  /// @brief Naiveley allow any numbers in the int range
+  KnownBitsState operator+(const KnownBitsState &other) const {
+    ull min = minPossible() + other.minPossible();
+    ull max = maxPossible() + other.maxPossible();
+    if (min == max) // add constants is constant, but we already knew that...
+      return KnownBitsState(nbits, ~max, max);
+    return KnownBitsState::top(nbits);
+  }
+
   KnownBitsState zeroExtend(ull width) const {
     KnownBitsState state(width, zeroes & mask(), ones & mask());
     state.zeroes |= state.mask() & ~mask();

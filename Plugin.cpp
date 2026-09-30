@@ -57,9 +57,9 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
         auto state = lattice->getValue();
         if (state.isInteresting())
           os << "known bits: " << state;
-        // Bottom says nothing worth commenting, but top says I at least moved up the lattice
-        else if (state.isTop())
-          os << "known bits: \u22a4";
+        // // Bottom says nothing worth commenting, but top says I at least moved up the lattice
+        // else if (state.isTop())
+        //   os << "known bits: \u22a4";
       }
       return description;
     };
