@@ -28,7 +28,7 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
   StringRef getArgument() const final { return "known-bits-analysis"; }
 
   StringRef getDescription() const final {
-    return "Determine which integer values are known zero or known nonzero";
+    return "Determine which bits are known zero or known nonzero";
   }
 
   void runOnOperation() override {
@@ -55,8 +55,10 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
         return {};
       known_bits::KnownBitsState state = lattice->getValue();
       // Top and bottom say nothing; printing them would bury the real facts.
-      if (state.bottoms() || state.tops() == state.mask())
-        return {};
+      // if (state.bottoms() || state.tops() == state.mask()) {
+      //   llvm::dbgs() << "state: " << state << "\n";
+      //   return {};
+      // }
       std::string description;
       llvm::raw_string_ostream os(description);
       value.printAsOperand(os, asmState);

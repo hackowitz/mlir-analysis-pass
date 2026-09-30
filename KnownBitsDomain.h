@@ -23,55 +23,78 @@
 #define KNOWN_BITS_DOMAIN_H
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/raw_ostream.h"
+
+// I've never written macros before but they seem simple enough
+#define MASK(n) ((n) < ULLONG_WIDTH ? (1ULL << (n)) - 1ULL : ~0ULL)
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+using ull = unsigned long long;
 
 namespace known_bits {
 
 struct KnownBitsState {
 
 public:
-  unsigned int nbits = 128; // size of long long
-  unsigned long long zeroes = 0;
-  unsigned long long ones = 0;
+  ull nbits = ULLONG_WIDTH; // size of ull
+  ull zeroes = 0;
+  ull ones = 0;
 
   /// @brief Create a known bits state (initially "bottom", all impossible) of the desired size.
   /// @param nbits The number of bits in the underlying data type.
-  KnownBitsState(
-      unsigned int nbits = 128, unsigned long long zeroes = 0, unsigned long long ones = 0
-  )
+  KnownBitsState(ull nbits = ULLONG_WIDTH, ull zeroes = 0, ull ones = 0)
       : nbits(nbits), zeroes(zeroes), ones(ones) {}
-  static KnownBitsState top() { return KnownBitsState(~0, ~0); }
-  static KnownBitsState bottom() { return KnownBitsState(0, 0); }
+
+  /// @brief Top is {0, 1} for the bit width, and {} for bits out of range.
+  static KnownBitsState top(ull nbits = ULLONG_WIDTH) {
+    return KnownBitsState(nbits, MASK(nbits), MASK(nbits));
+  }
+
+  /// @brief Bottom is {} for all bits, in or out of `nbits` range.
+  static KnownBitsState bottom(ull nbits = ULLONG_WIDTH) { return KnownBitsState(nbits, 0, 0); }
+
+  /// @brief All bits are known up to the bit width, and bottom above the bit width
   static KnownBitsState fromConstant(llvm::APInt value) {
-    return KnownBitsState(value.getBitWidth(), ~value.getZExtValue(), value.getZExtValue());
+    ull n = value.getBitWidth();
+    ull v = value.getZExtValue();
+    return KnownBitsState(n, ~v, v);
+    // ull m = MASK(n); // I don't know why, but using the mask ruins a few things
+    // return KnownBitsState(n, ((~v) & m), (v & m)); // never too many parentheses
   }
 
   /// @brief A 'join' is a logical or. We start from an impossible "bottom" state and can only move
   /// upwards through the lattice towards a real possible value, the LFP
+  /// This is commutative because `&`, `|`, and "select max" are all commutative
+  /// This is idempotenet because `x | y | y`, `x & y & y`, and "select max" are idempotent
+  ///
+  /// @note 'bottom' is handled implicitly bitwise since 0 | x == x | 0 == x
   static KnownBitsState join(const KnownBitsState &lhs, const KnownBitsState &rhs) {
-    return KnownBitsState(
-        lhs.nbits > rhs.nbits ? lhs.nbits : rhs.nbits,
-        (lhs.zeroes & lhs.nbits) | (rhs.zeroes & rhs.nbits),
-        (lhs.ones & lhs.nbits) | (rhs.ones & rhs.nbits)
-    );
+    auto l0 = lhs.zeroes & lhs.mask();
+    auto r0 = rhs.zeroes & rhs.mask();
+    auto l1 = lhs.ones & lhs.mask();
+    auto r1 = rhs.ones & rhs.mask();
+    KnownBitsState state(MAX(lhs.nbits, rhs.nbits), l0 | r0, l1 | r1);
+    return state;
   }
 
-  /// @brief Get a mask of which bits are actually considered
-  unsigned long long mask() const { return (1 << nbits) - 1; }
-  unsigned long long tops() const { return zeroes & ones & mask(); }
-  unsigned long long bottoms() const { return ~zeroes & ~ones & mask(); }
+  /// @brief Get a mask of which bits are actually used
+  ull mask() const { return MASK(nbits); }
+  ull tops() const { return zeroes & ones & mask(); }
+  ull bottoms() const { return ~zeroes & ~ones & mask(); }
+  bool isBottom() const { return !(zeroes | ones); }
 
   /// @brief The minimum is bits that can only be 1 and not 0
-  unsigned long long minPossible() const { return ones & ~zeroes; }
+  ull minPossible() const { return ones & ~zeroes; }
 
   /// @brief The maximum is all bits that can be 1
-  unsigned long long maxPossible() const { return ones; }
+  ull maxPossible() const { return ones; }
 
   /// @brief It's ugly but get a string of bits for top, bottom, 0, and 1.
   void print(llvm::raw_ostream &os) const {
     bool one, zero;
-    for (unsigned int i = nbits; i > 0; --i) {
+    for (ull i = nbits; i > 0; --i) {
       one = (ones >> (i - 1)) & 1;
       zero = (zeroes >> (i - 1)) & 1;
       os << (one ? (zero ? '?' : '1') : (zero ? '0' : '!'));
@@ -86,19 +109,18 @@ public:
 
   /// @brief Abstrat operator - bits are 0 if either side is 0 and 1 if both sides are 1
   KnownBitsState operator&(const KnownBitsState &other) const {
-    // assert(nbits == other.nbits && "Bit count must match");
-    return KnownBitsState(nbits, zeroes | other.zeroes, ones & other.ones);
+    return KnownBitsState(
+        nbits > other.nbits ? nbits : other.nbits, zeroes | other.zeroes, ones & other.ones
+    );
   }
 
   /// @brief Abstrat operator - bits are 1 if either side is 1 and 0 if both sides are 0
   KnownBitsState operator|(const KnownBitsState &other) const {
-    // assert(nbits == other.nbits && "Bit count must match");
     return KnownBitsState(nbits, zeroes & other.zeroes, ones | other.ones);
   }
 
   /// @brief Abstract operator - bits are 0 if sides are the same and 1 if they are different
   KnownBitsState operator^(const KnownBitsState &other) const {
-    // assert(nbits == other.nbits && "Bit count must match");
     return KnownBitsState(
         nbits,
         (zeroes & other.zeroes) | (ones & other.ones),
@@ -114,7 +136,7 @@ public:
       return KnownBitsState(nbits, zeroes << other.ones, ones << other.ones);
     }
     // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
-    return KnownBitsState(nbits, ~0, ~0 << other.minPossible());
+    return KnownBitsState(nbits, ~0ULL, ~0ULL << other.minPossible());
   }
 
   /// @brief Abstract operator - shift right by some number of bits
@@ -125,18 +147,20 @@ public:
       return KnownBitsState(nbits, zeroes >> other.ones, ones >> other.ones);
     }
     // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
-    return KnownBitsState(nbits, ~0, ~0 >> other.minPossible());
+    return KnownBitsState(nbits, ~0ULL, ~0ULL >> other.minPossible());
   }
 
-  KnownBitsState zeroExtend(unsigned int width) const {
-    return KnownBitsState(width, zeroes & mask(), ones & mask());
+  KnownBitsState zeroExtend(ull width) const {
+    KnownBitsState state(width, zeroes & mask(), ones & mask());
+    state.zeroes |= state.mask() & ~mask();
+    return state;
   }
 
   /// @brief Very ugly way to sign extend manually. I sure hope the complier makes this good
-  KnownBitsState signExtend(unsigned int width) const {
+  KnownBitsState signExtend(ull width) const {
     KnownBitsState other = zeroExtend(width);
-    unsigned long long msb = 1 << (nbits - 1);
-    unsigned long long ext_mask = other.mask() & ~mask();
+    ull msb = 1 << (nbits - 1);
+    ull ext_mask = other.mask() & ~mask();
     if (zeroes & msb)
       other.zeroes |= ext_mask;
     if (ones & msb)

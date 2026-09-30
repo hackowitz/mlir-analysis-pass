@@ -24,7 +24,7 @@ using namespace mlir;
 namespace known_bits {
 
 void KnownBitsAnalysis::setToEntryState(KnownBitsLattice *lattice) {
-  propagateIfChanged(lattice, lattice->join(KnownBitsState::top()));
+  propagateIfChanged(lattice, lattice->join(KnownBitsState::bottom()));
 }
 
 LogicalResult KnownBitsAnalysis::visitOperation(
@@ -45,11 +45,28 @@ LogicalResult KnownBitsAnalysis::visitOperation(
     return unknown();
   KnownBitsLattice *result = results[0];
 
-  // A constant has all known bits. This is the transfer function into our abstract domain;
+  // Transfer functions into our abstract domain;
   // without some rule of this kind the analysis would have no facts to propagate at all.
   IntegerAttr value;
+  KnownBitsState known;
   if (matchPattern(op, m_Constant(&value))) {
-    auto known = KnownBitsState::fromConstant(value.getValue());
+    // A constant has all known bits.
+    known = KnownBitsState::fromConstant(value.getValue());
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
+    return success();
+  }
+  if (isa<LLVM::ZeroOp>(op)) {
+    // bits are all 0 not 1
+    known = KnownBitsState(op->getResult(0).getType().getIntOrFloatBitWidth(), ~0, 0);
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
+    return success();
+  }
+  if (isa<LLVM::LoadOp>(op)) {
+    // For a load op we at least know the bit width
+    known = KnownBitsState::top(op->getResult(0).getType().getIntOrFloatBitWidth());
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
     propagateIfChanged(result, result->join(known));
     return success();
   }
@@ -57,43 +74,87 @@ LogicalResult KnownBitsAnalysis::visitOperation(
   // Match the LLVM dialect operation, coopy/pasted from https://mlir.llvm.org/docs/Dialects/LLVM/
   // Start with the simplest: bitwise/binary operations
   if (isa<LLVM::AndOp>(op)) {
-    propagateIfChanged(result, result->join(operands[0]->getValue() & operands[1]->getValue()));
+    KnownBitsState lhs = operands[0]->getValue();
+    KnownBitsState rhs = operands[1]->getValue();
+    if (lhs.isBottom() || rhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs & rhs;
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::OrOp>(op)) {
-    propagateIfChanged(result, result->join(operands[0]->getValue() | operands[1]->getValue()));
+    KnownBitsState lhs = operands[0]->getValue();
+    KnownBitsState rhs = operands[1]->getValue();
+    if (lhs.isBottom() || rhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs | rhs;
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::XOrOp>(op)) {
-    propagateIfChanged(result, result->join(operands[0]->getValue() | operands[1]->getValue()));
+    KnownBitsState lhs = operands[0]->getValue();
+    KnownBitsState rhs = operands[1]->getValue();
+    if (lhs.isBottom() || rhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs | rhs;
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::ShlOp>(op)) {
-    propagateIfChanged(result, result->join(operands[0]->getValue() << operands[1]->getValue()));
+    KnownBitsState lhs = operands[0]->getValue();
+    KnownBitsState rhs = operands[1]->getValue();
+    if (lhs.isBottom() || rhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs << rhs;
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::LShrOp>(op)) {
-    propagateIfChanged(result, result->join(operands[0]->getValue() >> operands[1]->getValue()));
+    KnownBitsState lhs = operands[0]->getValue();
+    KnownBitsState rhs = operands[1]->getValue();
+    if (lhs.isBottom() || rhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs >> rhs;
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::AShrOp>(op))
     return unknown(); // I'm choosing to defer this one
   if (isa<LLVM::SExtOp>(op)) {
     auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
-    propagateIfChanged(result, result->join(operands[0]->getValue().signExtend(nbits)));
+    KnownBitsState lhs = operands[0]->getValue();
+    if (lhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs.signExtend(nbits);
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
   if (isa<LLVM::ZExtOp>(op)) {
     auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
-    propagateIfChanged(result, result->join(nbits));
+    KnownBitsState lhs = operands[0]->getValue();
+    if (lhs.isBottom()) {
+      return success();
+    }
+    KnownBitsState known = lhs.zeroExtend(nbits);
+    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
+    propagateIfChanged(result, result->join(known));
     return success();
   }
 
   // // Arithmetic operations are harder but definitely possible
   // if (isa<LLVM::AddOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ZeroOp>(op)) {
   //   return unknown();
   // }
   // if (isa<LLVM::MulOp>(op)) {
@@ -112,213 +173,6 @@ LogicalResult KnownBitsAnalysis::visitOperation(
   //   return unknown();
   // }
 
-  // // Floating point arithmetic is possible but I won't get to it
-  // if (isa<LLVM::FAddOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FRemOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FSubOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FCmpOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FDivOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FenceOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FMulOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FNegOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FPExtOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FPToSIOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FPToUIOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FPTruncOp>(op)) {
-  //   return unknown();
-  // }
-
-  // // Most of these will stay unknown() until they are removed
-  // if (isa<LLVM::AddrSpaceCastOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::AllocaOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::AtomicRMWOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::BitcastOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::BlockAddressOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::BlockTagOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::BrOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::CallOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::CallIntrinsicOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::AtomicCmpXchgOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ComdatOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ComdatSelectorOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::CondBrOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::DSOLocalEquivalentOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ExtractElementOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ExtractValueOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::FreezeOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::LLVMFuncOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::GEPOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ICmpOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::IndirectBrOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::InlineAsmOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::InsertElementOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::InsertValueOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::IntToPtrOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::InvokeOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::LandingpadOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::LinkerOptionsOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::LoadOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::AddressOfOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::AliasOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ConstantOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::GlobalOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::GlobalCtorsOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::GlobalDtorsOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::IFuncOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::MetadataAsValueOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::NoneTokenOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::PoisonOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::UndefOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ModuleFlagsOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::NamedMetadataOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::PtrToAddrOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::PtrToIntOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ResumeOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ReturnOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SelectOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::ShuffleVectorOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SIToFPOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SRemOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::StoreOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SwitchOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::UIToFPOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::UnreachableOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::URemOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::VaArgOp>(op)) {
-  //   return unknown();
-  // }
   return unknown();
 }
 
