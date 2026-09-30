@@ -53,13 +53,13 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
       std::string description;
       if (lattice) {
+        llvm::raw_string_ostream os(description);
         auto state = lattice->getValue();
-        // Top and bottom say nothing; printing them would bury the real facts.
-        if (state.isInteresting()) {
-          llvm::raw_string_ostream os(description);
-          value.printAsOperand(os, asmState);
-          os << " is " << state;
-        }
+        if (state.isInteresting())
+          os << "known bits: " << state;
+        // Bottom says nothing worth commenting, but top says I at least moved up the lattice
+        else if (state.isTop())
+          os << "known bits: \u22a4";
       }
       return description;
     };
