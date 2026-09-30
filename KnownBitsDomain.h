@@ -216,6 +216,43 @@ public:
       other.ones |= ext_mask;
     return other;
   }
+
+  // logical comparisons, sorted by occurrences in sqlite3
+
+  KnownBitsState eq(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState ne(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState sge(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState sgt(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState sle(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState slt(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState uge(const KnownBitsState &other) const {
+    if (minPossible() >= other.maxPossible())
+      return KnownBitsState(1, 0, 1); // known 1'b1
+    if (maxPossible() < other.minPossible())
+      return KnownBitsState(0, 1, 0); // known 1'b0
+    return KnownBitsState::top(1);
+  }
+  KnownBitsState ugt(const KnownBitsState &other) const {
+    if (minPossible() > other.maxPossible())
+      return KnownBitsState(1, 0, 1); // known 1'b1
+    if (maxPossible() <= other.minPossible())
+      return KnownBitsState(0, 1, 0); // known 1'b0
+    return KnownBitsState::top(1);
+  }
+  KnownBitsState ule(const KnownBitsState &other) const {
+    if (maxPossible() <= other.minPossible())
+      return KnownBitsState(1, 0, 1); // known 1'b1
+    if (minPossible() > other.maxPossible())
+      return KnownBitsState(0, 1, 0); // known 1'b0
+    return KnownBitsState::top(1);
+  }
+  KnownBitsState ult(const KnownBitsState &other) const {
+    if (maxPossible() < other.minPossible())
+      return KnownBitsState(1, 0, 1); // known 1'b1
+    if (minPossible() >= other.maxPossible())
+      return KnownBitsState(0, 1, 0); // known 1'b0
+    return KnownBitsState::top(1);
+  }
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os, const KnownBitsState &state) {

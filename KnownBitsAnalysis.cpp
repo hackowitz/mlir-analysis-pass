@@ -96,16 +96,49 @@ LogicalResult KnownBitsAnalysis::visitOperation(
         known = lhs << rhs;
       else if (isa<LLVM::LShrOp>(op))
         known = lhs >> rhs;
-      // TODO list, sorted by number of occurrences in sqlite3.
-      // I'll go through these roughly in order as time allows
-      else if (isa<LLVM::ICmpOp>(op))
-        // Over-approximate comparisons: last bit is unknown (unless I actually make the transfer
-        // functions), all others are known 0
-        known = KnownBitsState::top(1);
       else if (isa<LLVM::AddOp>(op))
         known = lhs + rhs;
       else if (isa<LLVM::SubOp>(op))
         known = lhs - rhs;
+      else if (auto icmp = dyn_cast<LLVM::ICmpOp>(op)) {
+        switch (icmp.getPredicate()) {
+        case LLVM::ICmpPredicate::eq: // 5264 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::ne: // 7806 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::sge: //  557 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::sgt: //  719 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::sle: //  228 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::slt: // 1195 occurrences
+          known = KnownBitsState::top(1);
+          break;
+        case LLVM::ICmpPredicate::uge: //  132 occurrences
+          known = lhs.uge(rhs);
+          break;
+        case LLVM::ICmpPredicate::ugt: //  224 occurrences
+          known = lhs.ugt(rhs);
+          break;
+        case LLVM::ICmpPredicate::ule: //  166 occurrences
+          known = lhs.ule(rhs);
+          break;
+        case LLVM::ICmpPredicate::ult: //  262 occurrences
+          known = lhs.ult(rhs);
+          break;
+        default:
+          // Over-approximate comparisons: last bit is unknown
+          known = KnownBitsState::top(1);
+        }
+      }
+      // TODO list, sorted by number of occurrences in sqlite3.
+      // I'll go through these roughly in order as time allows
       else if (isa<LLVM::MulOp>(op)) //   179 llvm.mul
         return unknown();
       else if (isa<LLVM::SDivOp>(op)) //   70 llvm.sdiv
