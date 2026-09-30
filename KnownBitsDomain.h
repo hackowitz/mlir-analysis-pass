@@ -28,8 +28,11 @@
 #include "llvm/Support/raw_ostream.h"
 
 // I've never written macros before but they seem simple enough
+// MAX gets used in binary comparisons but might produce tops when it should bottoms
+// FIXME: ...or worse, fail to sign-extend the smaller value and be incorrect analysis
 #define MASK(n) ((n) < ULLONG_WIDTH ? (1ULL << (n)) - 1ULL : ~0ULL)
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 using ull = unsigned long long;
 
@@ -44,7 +47,7 @@ public:
 
   /// @brief Create a known bits state (initially "bottom", all impossible) of the desired size.
   /// @param nbits The number of bits in the underlying data type.
-  KnownBitsState(ull nbits = ULLONG_WIDTH, ull zeroes = 0, ull ones = 0)
+  KnownBitsState(ull nbits = ULLONG_WIDTH, ull zeroes = 0ULL, ull ones = 0ULL)
       : nbits(nbits), zeroes(zeroes), ones(ones) {}
 
   /// @brief Top is {0, 1} for the bit width, and {} for bits out of range.
@@ -53,7 +56,13 @@ public:
   }
 
   /// @brief Bottom is {} for all bits, in or out of `nbits` range.
-  static KnownBitsState bottom(ull nbits = ULLONG_WIDTH) { return KnownBitsState(nbits, 0, 0); }
+  static KnownBitsState bottom(ull nbits = ULLONG_WIDTH) {
+    return KnownBitsState(nbits, 0ULL, 0ULL);
+  }
+
+  static KnownBitsState zero(ull nbits = ULONG_WIDTH) {
+    return KnownBitsState(nbits, ~0ULL & MASK(nbits), 0ULL);
+  }
 
   /// @brief All bits are known up to the bit width, and bottom above the bit width
   static KnownBitsState fromConstant(llvm::APInt value) {
@@ -69,21 +78,25 @@ public:
   /// This is commutative because `&`, `|`, and "select max" are all commutative
   /// This is idempotenet because `x | y | y`, `x & y & y`, and "select max" are idempotent
   ///
-  /// @note 'bottom' is handled implicitly bitwise since 0 | x == x | 0 == x
+  /// @note 'bottom' is handled implicitly bitwise since 0 | x == x | 0 == x.
+  /// The nbits is the minimum since 'bottom' has the maximum.
+  /// I don't know all the implications of this choice.
   static KnownBitsState join(const KnownBitsState &lhs, const KnownBitsState &rhs) {
     auto l0 = lhs.zeroes & lhs.mask();
     auto r0 = rhs.zeroes & rhs.mask();
     auto l1 = lhs.ones & lhs.mask();
     auto r1 = rhs.ones & rhs.mask();
-    KnownBitsState state(MAX(lhs.nbits, rhs.nbits), l0 | r0, l1 | r1);
+    KnownBitsState state(MIN(lhs.nbits, rhs.nbits), l0 | r0, l1 | r1);
     return state;
   }
 
   /// @brief Get a mask of which bits are actually used
   ull mask() const { return MASK(nbits); }
-  ull tops() const { return zeroes & ones & mask(); }
-  ull bottoms() const { return ~zeroes & ~ones & mask(); }
-  bool isBottom() const { return !(zeroes | ones); }
+  ull tops() const { return (zeroes & ones) & mask(); }
+  ull bottoms() const { return ~(zeroes | ones) & mask(); }
+  bool isBottom() const { return !((zeroes | ones) & mask()); }
+  bool isTop() const { return (zeroes & ones & mask()) == mask(); }
+  bool isInteresting() { return (zeroes ^ ones) & mask(); }
 
   /// @brief The minimum is bits that can only be 1 and not 0
   ull minPossible() const { return ones & ~zeroes; }
@@ -94,9 +107,10 @@ public:
   /// @brief It's ugly but get a string of bits for top, bottom, 0, and 1.
   void print(llvm::raw_ostream &os) const {
     bool one, zero;
-    for (ull i = nbits; i > 0; --i) {
-      one = (ones >> (i - 1)) & 1;
-      zero = (zeroes >> (i - 1)) & 1;
+    os << nbits << "'b";        // verilog style
+    for (ull i = nbits; i--;) { // post-decrement loops (nbits, 0]
+      one = (ones >> i) & 1;
+      zero = (zeroes >> i) & 1;
       os << (one ? (zero ? '?' : '1') : (zero ? '0' : '!'));
     };
   }
@@ -109,20 +123,18 @@ public:
 
   /// @brief Abstrat operator - bits are 0 if either side is 0 and 1 if both sides are 1
   KnownBitsState operator&(const KnownBitsState &other) const {
-    return KnownBitsState(
-        nbits > other.nbits ? nbits : other.nbits, zeroes | other.zeroes, ones & other.ones
-    );
+    return KnownBitsState(MAX(nbits, other.nbits), zeroes | other.zeroes, ones & other.ones);
   }
 
   /// @brief Abstrat operator - bits are 1 if either side is 1 and 0 if both sides are 0
   KnownBitsState operator|(const KnownBitsState &other) const {
-    return KnownBitsState(nbits, zeroes & other.zeroes, ones | other.ones);
+    return KnownBitsState(MAX(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
   }
 
   /// @brief Abstract operator - bits are 0 if sides are the same and 1 if they are different
   KnownBitsState operator^(const KnownBitsState &other) const {
     return KnownBitsState(
-        nbits,
+        MAX(nbits, other.nbits),
         (zeroes & other.zeroes) | (ones & other.ones),
         (ones & other.zeroes) | (zeroes & other.ones)
     );
@@ -131,10 +143,10 @@ public:
   /// @brief Abstract operator - shift left by some number of bits
   KnownBitsState operator<<(const KnownBitsState &other) const {
     // shift left by constant
-    if (!other.tops()) {
+    if (!other.tops() && !other.bottoms())
       // if the other is known, it's value is just it's ones
       return KnownBitsState(nbits, zeroes << other.ones, ones << other.ones);
-    }
+
     // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
     return KnownBitsState(nbits, ~0ULL, ~0ULL << other.minPossible());
   }

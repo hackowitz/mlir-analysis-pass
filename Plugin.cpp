@@ -51,18 +51,16 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
     // Query states only now that the solver has converged.
     auto describe = [&](Value value, AsmState &asmState) -> std::string {
       const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
-      if (!lattice)
-        return {};
-      known_bits::KnownBitsState state = lattice->getValue();
-      // Top and bottom say nothing; printing them would bury the real facts.
-      // if (state.bottoms() || state.tops() == state.mask()) {
-      //   llvm::dbgs() << "state: " << state << "\n";
-      //   return {};
-      // }
       std::string description;
-      llvm::raw_string_ostream os(description);
-      value.printAsOperand(os, asmState);
-      os << " is " << state;
+      if (lattice) {
+        auto state = lattice->getValue();
+        // Top and bottom say nothing; printing them would bury the real facts.
+        if (state.isInteresting()) {
+          llvm::raw_string_ostream os(description);
+          value.printAsOperand(os, asmState);
+          os << " is " << state;
+        }
+      }
       return description;
     };
 

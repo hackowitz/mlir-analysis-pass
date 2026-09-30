@@ -39,141 +39,97 @@ LogicalResult KnownBitsAnalysis::visitOperation(
     return success();
   };
 
-  // Only single-result integer operations are interesting here.  Calls, loads,
-  // floats, and vectors all land in `unknown`.
+  // Only single-result integer operations are interesting here.
+  // Calls, loads, floats, and vectors all land in `unknown`.
   if (op->getNumResults() != 1 || !op->getResult(0).getType().isIntOrIndex())
     return unknown();
-  KnownBitsLattice *result = results[0];
 
-  // Transfer functions into our abstract domain;
+  KnownBitsLattice *result = results[0];
+  KnownBitsState known;
+  auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
+
+  // The first few cases bring numeric data into our abstract domain;
   // without some rule of this kind the analysis would have no facts to propagate at all.
   IntegerAttr value;
-  KnownBitsState known;
-  if (matchPattern(op, m_Constant(&value))) {
+  if (matchPattern(op, m_Constant(&value)))
     // A constant has all known bits.
     known = KnownBitsState::fromConstant(value.getValue());
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::ZeroOp>(op)) {
+  else if (isa<LLVM::ZeroOp>(op))
     // bits are all 0 not 1
-    known = KnownBitsState(op->getResult(0).getType().getIntOrFloatBitWidth(), ~0, 0);
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::LoadOp>(op)) {
+    known = KnownBitsState::zero(nbits);
+  else if (isa<LLVM::LoadOp>(op))
     // For a load op we at least know the bit width
-    known = KnownBitsState::top(op->getResult(0).getType().getIntOrFloatBitWidth());
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
+    known = KnownBitsState::top(nbits);
+  else if (op->getNumOperands()) {
+    // Remaining cases are operations on abstract values, startign with unary opernads
+    // Stupid sanity check - does anything ever not have operands?
 
-  // Match the LLVM dialect operation, coopy/pasted from https://mlir.llvm.org/docs/Dialects/LLVM/
-  // Start with the simplest: bitwise/binary operations
-  if (isa<LLVM::AndOp>(op)) {
+    // exit early on unreachable code
     KnownBitsState lhs = operands[0]->getValue();
-    KnownBitsState rhs = operands[1]->getValue();
-    if (lhs.isBottom() || rhs.isBottom()) {
+    if (lhs.isBottom())
       return success();
-    }
-    KnownBitsState known = lhs & rhs;
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::OrOp>(op)) {
-    KnownBitsState lhs = operands[0]->getValue();
-    KnownBitsState rhs = operands[1]->getValue();
-    if (lhs.isBottom() || rhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs | rhs;
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::XOrOp>(op)) {
-    KnownBitsState lhs = operands[0]->getValue();
-    KnownBitsState rhs = operands[1]->getValue();
-    if (lhs.isBottom() || rhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs | rhs;
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::ShlOp>(op)) {
-    KnownBitsState lhs = operands[0]->getValue();
-    KnownBitsState rhs = operands[1]->getValue();
-    if (lhs.isBottom() || rhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs << rhs;
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::LShrOp>(op)) {
-    KnownBitsState lhs = operands[0]->getValue();
-    KnownBitsState rhs = operands[1]->getValue();
-    if (lhs.isBottom() || rhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs >> rhs;
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::AShrOp>(op))
-    return unknown(); // I'm choosing to defer this one
-  if (isa<LLVM::SExtOp>(op)) {
-    auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
-    KnownBitsState lhs = operands[0]->getValue();
-    if (lhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs.signExtend(nbits);
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
-  if (isa<LLVM::ZExtOp>(op)) {
-    auto nbits = op->getResult(0).getType().getIntOrFloatBitWidth();
-    KnownBitsState lhs = operands[0]->getValue();
-    if (lhs.isBottom()) {
-      return success();
-    }
-    KnownBitsState known = lhs.zeroExtend(nbits);
-    llvm::dbgs() << "// " << *op << "\n//\t" << known << "\n";
-    propagateIfChanged(result, result->join(known));
-    return success();
-  }
+    else if (isa<LLVM::SExtOp>(op))
+      known = lhs.signExtend(nbits);
+    else if (isa<LLVM::ZExtOp>(op))
+      known = lhs.zeroExtend(nbits);
+    else if (isa<LLVM::AShrOp>(op))
+      return unknown(); // I'm choosing to defer this one
+    else if (isa<LLVM::TruncOp>(op))
+      return unknown(); // TODO
+    else if (isa<LLVM::CountLeadingZerosOp>(op))
+      // There are plenty of edge cases I'm ignoring for this assignment...
+      return unknown(); // TODO
+    else if (op->getNumOperands() > 1) {
+      // Now on to binary operations on abstract values
 
-  // // Arithmetic operations are harder but definitely possible
-  // if (isa<LLVM::AddOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::MulOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SDivOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::SubOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::TruncOp>(op)) {
-  //   return unknown();
-  // }
-  // if (isa<LLVM::UDivOp>(op)) {
-  //   return unknown();
-  // }
-
-  return unknown();
+      // exit early on unreachable code
+      KnownBitsState rhs = operands[1]->getValue();
+      if (rhs.isBottom())
+        return success();
+      else if (isa<LLVM::AndOp>(op))
+        known = lhs & rhs;
+      else if (isa<LLVM::OrOp>(op))
+        known = lhs | rhs;
+      else if (isa<LLVM::XOrOp>(op))
+        known = lhs | rhs;
+      else if (isa<LLVM::ShlOp>(op))
+        known = lhs << rhs;
+      else if (isa<LLVM::LShrOp>(op))
+        known = lhs >> rhs;
+      // TODO list, sorted by number of occurrences in sqlite3.
+      // I'll go through these roughly in order as time allows
+      else if (isa<LLVM::ICmpOp>(op)) // 6500 llvm.icmp
+        return unknown();
+      else if (isa<LLVM::AddOp>(op)) //  3418 llvm.add
+        return unknown();
+      else if (isa<LLVM::SubOp>(op)) //   764 llvm.sub
+        return unknown();
+      else if (isa<LLVM::MulOp>(op)) //   179 llvm.mul
+        return unknown();
+      else if (isa<LLVM::SDivOp>(op)) //   70 llvm.sdiv
+        return unknown();
+      else if (isa<LLVM::UDivOp>(op)) //   48 llvm.udiv
+        return unknown();
+      else if (isa<LLVM::SRemOp>(op)) //   37 llvm.srem
+        return unknown();
+      else if (isa<LLVM::URemOp>(op)) //   22 llvm.urem
+        return unknown();
+      else if (isa<LLVM::SelectOp>(op)) //  3 llvm.select
+        return unknown();
+      else {
+        llvm::dbgs() << "// Unknown binary op: " << *op << "\n";
+        return unknown();
+      }
+    } else {
+      llvm::dbgs() << "// Unknown unary op: " << *op << "\n";
+      return unknown();
+    }
+  } else {
+    llvm::dbgs() << "// No operands? Insane! " << *op << "\n";
+    return unknown();
+  }
+  propagateIfChanged(result, result->join(known));
+  return success();
 }
 
 } // namespace known_bits
