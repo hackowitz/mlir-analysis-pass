@@ -96,7 +96,8 @@ public:
   ull bottoms() const { return ~(zeroes | ones) & mask(); }
   bool isBottom() const { return !((zeroes | ones) & mask()); }
   bool isTop() const { return (zeroes & ones & mask()) == mask(); }
-  bool isInteresting() { return (zeroes ^ ones) & mask(); }
+  bool isInteresting() const { return (zeroes ^ ones) & mask(); }
+  bool isConstant() const { return (zeroes ^ ones) == mask(); }
 
   /// @brief The minimum is bits that can only be 1 and not 0
   ull minPossible() const { return ones & ~zeroes; }
@@ -143,7 +144,7 @@ public:
   /// @brief Abstract operator - shift left by some number of bits
   KnownBitsState operator<<(const KnownBitsState &other) const {
     // shift left by constant
-    if (!other.tops() && !other.bottoms())
+    if (other.isConstant())
       // if the other is known, it's value is just it's ones
       return KnownBitsState(nbits, zeroes << other.ones, ones << other.ones);
 
@@ -154,7 +155,7 @@ public:
   /// @brief Abstract operator - shift right by some number of bits
   KnownBitsState operator>>(const KnownBitsState &other) const {
     // shift right by constant
-    if (!other.tops()) {
+    if (other.isConstant()) {
       // if the other is known, it's value is just it's ones
       return KnownBitsState(nbits, zeroes >> other.ones, ones >> other.ones);
     }
@@ -162,13 +163,26 @@ public:
     return KnownBitsState(nbits, ~0ULL, ~0ULL >> other.minPossible());
   }
 
-  /// @brief Naiveley allow any numbers in the int range
   KnownBitsState operator+(const KnownBitsState &other) const {
-    ull min = minPossible() + other.minPossible();
-    ull max = maxPossible() + other.maxPossible();
-    if (min == max) // add constants is constant, but we already knew that...
-      return KnownBitsState(nbits, ~max, max);
-    return KnownBitsState::top(nbits);
+    ull LHSKnownOnes = ones & ~zeroes;
+    ull RHSKnownOnes = other.ones & ~other.zeroes;
+
+    ull LHSKnownZeroes = zeroes & ~ones;
+    ull RHSKnownZeroes = other.zeroes & ~other.ones;
+
+    // TODO: known carries can be refined by considering ripple carry
+    ull KnownCarryOut = (LHSKnownOnes & RHSKnownOnes);
+    ull KnownNotCarryOut = (LHSKnownZeroes & RHSKnownZeroes);
+    ull KnownCarryIn = (KnownCarryOut << 1);       // | carry in bit for subtraction
+    ull KnownNotCarryIn = (KnownNotCarryOut << 1); // | carry in bit for subtraction
+
+    ull KnownSums = (LHSKnownOnes & RHSKnownZeroes) ^ (RHSKnownOnes & LHSKnownZeroes);
+    ull KnownNotSums = (LHSKnownZeroes & RHSKnownZeroes) | KnownCarryOut;
+
+    ull KnownOnes = (KnownNotSums & KnownCarryIn) | (KnownSums & KnownNotCarryIn);
+    ull KnownZeroes = (KnownSums & KnownCarryIn) | (KnownNotSums & KnownNotCarryIn);
+    ull Unknowns = ~(KnownOnes | KnownZeroes);
+    return KnownBitsState(nbits, Unknowns | KnownZeroes, Unknowns | KnownOnes);
   }
 
   KnownBitsState zeroExtend(ull width) const {
