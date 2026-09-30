@@ -219,8 +219,21 @@ public:
 
   // logical comparisons, sorted by occurrences in sqlite3
 
-  KnownBitsState eq(const KnownBitsState &other) const { return KnownBitsState::top(1); }
-  KnownBitsState ne(const KnownBitsState &other) const { return KnownBitsState::top(1); }
+  KnownBitsState eq(const KnownBitsState &other) const {
+    ull KnownOnes = (ones & ~zeroes) & mask();
+    ull KnownZeroes = (zeroes & ~ones) & mask();
+    ull KnownOtherOnes = (other.ones & ~other.zeroes) & mask();
+    ull KnownOtherZeroes = (other.zeroes & ~other.ones) & mask();
+
+    // any conflicts mean known unequal
+    if ((KnownOnes & KnownOtherZeroes) | (KnownZeroes & KnownOtherOnes))
+      return KnownBitsState(1, 1, 0);
+    // no conflicts, and all bits known on both sides, means known equal
+    if (((KnownOnes | KnownZeroes) & (KnownOtherOnes | KnownOtherZeroes)) == mask())
+      return KnownBitsState(1, 0, 1);
+    return KnownBitsState::top(1);
+  }
+  KnownBitsState ne(const KnownBitsState &other) const { return ~eq(other); }
   KnownBitsState sge(const KnownBitsState &other) const { return KnownBitsState::top(1); }
   KnownBitsState sgt(const KnownBitsState &other) const { return KnownBitsState::top(1); }
   KnownBitsState sle(const KnownBitsState &other) const { return KnownBitsState::top(1); }

@@ -103,22 +103,22 @@ LogicalResult KnownBitsAnalysis::visitOperation(
       else if (auto icmp = dyn_cast<LLVM::ICmpOp>(op)) {
         switch (icmp.getPredicate()) {
         case LLVM::ICmpPredicate::eq: // 5264 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.eq(rhs);
           break;
         case LLVM::ICmpPredicate::ne: // 7806 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.ne(rhs);
           break;
         case LLVM::ICmpPredicate::sge: //  557 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.sge(rhs);
           break;
         case LLVM::ICmpPredicate::sgt: //  719 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.sgt(rhs);
           break;
         case LLVM::ICmpPredicate::sle: //  228 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.sle(rhs);
           break;
         case LLVM::ICmpPredicate::slt: // 1195 occurrences
-          known = KnownBitsState::top(1);
+          known = lhs.slt(rhs);
           break;
         case LLVM::ICmpPredicate::uge: //  132 occurrences
           known = lhs.uge(rhs);
@@ -133,7 +133,7 @@ LogicalResult KnownBitsAnalysis::visitOperation(
           known = lhs.ult(rhs);
           break;
         default:
-          // Over-approximate comparisons: last bit is unknown
+          // Over-approximation: one-bit unknown
           known = KnownBitsState::top(1);
         }
       }
