@@ -98,8 +98,10 @@ LogicalResult KnownBitsAnalysis::visitOperation(
         known = lhs >> rhs;
       // TODO list, sorted by number of occurrences in sqlite3.
       // I'll go through these roughly in order as time allows
-      else if (isa<LLVM::ICmpOp>(op)) // 6500 llvm.icmp
-        return unknown();
+      else if (isa<LLVM::ICmpOp>(op))
+        // Over-approximate comparisons: last bit is unknown (unless I actually make the transfer
+        // functions), all others are known 0
+        known = KnownBitsState::top(1);
       else if (isa<LLVM::AddOp>(op)) //  3418 llvm.add
         return unknown();
       else if (isa<LLVM::SubOp>(op)) //   764 llvm.sub
