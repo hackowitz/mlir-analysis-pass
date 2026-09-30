@@ -141,12 +141,15 @@ public:
     );
   }
 
+  /// @brief Abstrat operator - bits are flipped
+  KnownBitsState operator~() const { return KnownBitsState(nbits, ones, zeroes); }
+
   /// @brief Abstract operator - shift left by some number of bits
   KnownBitsState operator<<(const KnownBitsState &other) const {
     // shift left by constant
     if (other.isConstant())
-      // if the other is known, it's value is just it's ones
-      return KnownBitsState(nbits, zeroes << other.ones, ones << other.ones);
+      // if the other is known, it's value is just it's ones, which we chift left and zfill below
+      return KnownBitsState(nbits, (zeroes << other.ones) | MASK(other.ones), ones << other.ones);
 
     // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
     return KnownBitsState(nbits, ~0ULL, ~0ULL << other.minPossible());
@@ -157,13 +160,24 @@ public:
     // shift right by constant
     if (other.isConstant()) {
       // if the other is known, it's value is just it's ones
-      return KnownBitsState(nbits, zeroes >> other.ones, ones >> other.ones);
+
+      return KnownBitsState(
+          nbits,
+          (zeroes >> other.ones) | ~MASK(nbits - other.ones), // same logic as << but mirrored left
+          ones >> other.ones
+      );
     }
     // TODO: The easy answer is just to not know, but we can refine the LSBs a tad
     return KnownBitsState(nbits, ~0ULL, ~0ULL >> other.minPossible());
   }
 
-  KnownBitsState operator+(const KnownBitsState &other) const {
+  /// @brief Abstract addition
+  KnownBitsState operator+(const KnownBitsState &other) const { return add(other, false); }
+
+  /// @brief Abstract subtraction - equivalent to ALU witn BInvert and CarryIn (e.g. BNegate)
+  KnownBitsState operator-(const KnownBitsState &other) const { return add(~other, true); }
+
+  KnownBitsState add(const KnownBitsState &other, bool carryIn = false) const {
     ull LHSKnownOnes = ones & ~zeroes;
     ull RHSKnownOnes = other.ones & ~other.zeroes;
 
@@ -173,8 +187,8 @@ public:
     // TODO: known carries can be refined by considering ripple carry
     ull KnownCarryOut = (LHSKnownOnes & RHSKnownOnes);
     ull KnownNotCarryOut = (LHSKnownZeroes & RHSKnownZeroes);
-    ull KnownCarryIn = (KnownCarryOut << 1);       // | carry in bit for subtraction
-    ull KnownNotCarryIn = (KnownNotCarryOut << 1); // | carry in bit for subtraction
+    ull KnownCarryIn = (KnownCarryOut << 1) | carryIn;
+    ull KnownNotCarryIn = (KnownNotCarryOut << 1) | carryIn;
 
     ull KnownSums = (LHSKnownOnes & RHSKnownZeroes) ^ (RHSKnownOnes & LHSKnownZeroes);
     ull KnownNotSums = (LHSKnownZeroes & RHSKnownZeroes) | KnownCarryOut;

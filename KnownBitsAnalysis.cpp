@@ -102,10 +102,10 @@ LogicalResult KnownBitsAnalysis::visitOperation(
         // Over-approximate comparisons: last bit is unknown (unless I actually make the transfer
         // functions), all others are known 0
         known = KnownBitsState::top(1);
-      else if (isa<LLVM::AddOp>(op)) {
+      else if (isa<LLVM::AddOp>(op))
         known = lhs + rhs;
-      } else if (isa<LLVM::SubOp>(op)) //   764 llvm.sub
-        return unknown();
+      else if (isa<LLVM::SubOp>(op))
+        known = lhs - rhs;
       else if (isa<LLVM::MulOp>(op)) //   179 llvm.mul
         return unknown();
       else if (isa<LLVM::SDivOp>(op)) //   70 llvm.sdiv
