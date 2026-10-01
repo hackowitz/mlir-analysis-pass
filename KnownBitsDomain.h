@@ -174,24 +174,26 @@ public:
   /// @brief Abstract subtraction - equivalent to ALU witn BInvert and CarryIn (e.g. BNegate)
   KnownBitsState operator-(const KnownBitsState &other) const { return add(~other, true); }
 
+  /// @brief I've seen the LLVM implementation and know this can be done faster.
+  /// But I wanted to solve the problem myself, in a way I understand.
   KnownBitsState add(const KnownBitsState &other, bool carryIn = false) const {
-    ull LHSKnownOnes = ones & ~zeroes;
-    ull RHSKnownOnes = other.ones & ~other.zeroes;
+    ull LHSKnownOnes = ones & ~zeroes;             // this is also the min possible
+    ull RHSKnownOnes = other.ones & ~other.zeroes; // this is also the min possible
 
     ull LHSKnownZeroes = zeroes & ~ones;
     ull RHSKnownZeroes = other.zeroes & ~other.ones;
 
-    // TODO: known carries can be refined by considering ripple carry
-    ull KnownCarryOut = (LHSKnownOnes & RHSKnownOnes);
-    ull KnownNotCarryOut = (LHSKnownZeroes & RHSKnownZeroes);
-    ull KnownCarryIn = (KnownCarryOut << 1) | carryIn;
-    ull KnownNotCarryIn = (KnownNotCarryOut << 1) | carryIn;
+    // Ripple carry known bits natively, then unset bits that consume their carry
+    ull KnownCarry = ((LHSKnownOnes + RHSKnownOnes + carryIn) ^ (LHSKnownOnes ^ RHSKnownOnes));
+    // Ripple carry possible bits natively, as above. Known non-carries is the inverse.
+    ull KnownNotCarry = ~((ones + other.ones + carryIn) ^ (ones ^ other.ones));
 
+    // Bitwise sum, not considering carry
     ull KnownSums = (LHSKnownOnes & RHSKnownZeroes) ^ (RHSKnownOnes & LHSKnownZeroes);
-    ull KnownNotSums = (LHSKnownZeroes & RHSKnownZeroes) | KnownCarryOut;
+    ull KnownNotSums = (LHSKnownZeroes & RHSKnownZeroes) | (LHSKnownOnes & RHSKnownOnes);
 
-    ull KnownOnes = (KnownNotSums & KnownCarryIn) | (KnownSums & KnownNotCarryIn);
-    ull KnownZeroes = (KnownSums & KnownCarryIn) | (KnownNotSums & KnownNotCarryIn);
+    ull KnownOnes = (KnownNotSums & KnownCarry) | (KnownSums & KnownNotCarry);
+    ull KnownZeroes = (KnownSums & KnownCarry) | (KnownNotSums & KnownNotCarry);
     ull Unknowns = ~(KnownOnes | KnownZeroes);
     return KnownBitsState(nbits, Unknowns | KnownZeroes, Unknowns | KnownOnes);
   }

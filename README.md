@@ -138,9 +138,9 @@ The analysis is intraprocedural. It does not refine facts on branch conditions, 
 
 The analysis was run on the `sqlite3` v3.53.4 source code. For convenience and reproducability, [test/sqlite3.c](test/sqlite3.c), [test/sqlite3.ll](test/sqlite3.ll), and [test/sqlite3.mlir](test/sqlite3.mlir) are included in this repository. The analysis results are tracked as [test/sqlite3.known-bits.mlir](test/sqlite3.known-bits.mlir).
 
-Known bit results are appended as comments in the MLIR file, using the verilog-style binary representation. `?` represents $\top$ (top), and `!` represents $\bot$ (bottom). `!` in the output indicates an error, since no reached value can be neither 0 nor 1.  For example `// known bits: 8'b000001?!` is an 8-bit value with the first five bits known to be 0, then one bit known to be 1, then one unknown bit, and lastly one impossible/invalid/unreachable bit (which is nonsensical and should not occur). Trivial $\top$ and $\bot$ numbers are omitted for clarity.
+Known bit results are appended as comments in the MLIR file, using verilog-style binary representation. `?` represents $\top$ (top), and `!` represents $\bot$ (bottom). `!` in the output indicates an error, since no reached value can be neither 0 nor 1.  For example `// known bits: 8'b000001?!` is an 8-bit value with the first five bits known to be 0, then one bit known to be 1, then one unknown bit, and lastly one impossible/invalid/unreachable bit (which is nonsensical and should not occur). Trivial $\top$ and $\bot$ numbers are omitted for clarity.
 
-The easiest way to review results is with `grep`:
+The easiest way to explore the results is with `grep`:
 ```sh
 # 1: list all operations producing known bits
 grep -Pn 'known bits: \d+.b[01?!]+$' ./test/sqlite3.known-bits.mlir
@@ -162,10 +162,11 @@ These can be combined easily to show more specific combinations, for example fin
 ```
 These numbers look uninteresting at first, until we realize constant propagation didn't catch them - and `%187` is a branch condition that proves dead code that the dead code analysis didn't find!
 
-Many (tens of thousands) of the other facts don't seem obviously useful at first, but I bet sharing results with an integer range analysis could cough up some more concrete info. Many seem to load from memory, set or unset a bit, then store back to memory. A memory-aware analysis might bring out a lot more known bit checks and the like:
+We can also prove that sign extension is not necessary when the MSB is known 0. There are over 100 `sext` opeeratons that could be `zext`, 35 of which could be joined with a preceding `zext`, as below:
 ```llvm
-%142 = llvm.add %11, %141 overflow<nsw> : i32 // known bits: 32'b00000000000000000000000?1???????
-%24 = llvm.and %23, %4 : i32 // known bits: 32'b00000?0000?000000000000000000000
-%153 = llvm.and %152, %31 : i8 // known bits: 8'b????0???
-%154 = llvm.or %153, %32 : i8 // known bits: 8'b????1???
+%251 = llvm.load %250 <alignment = 2> : !llvm.ptr -> i8
+%252 = llvm.zext %251 : i8 to i32 // known bits: 32'b000000000000000000000000????????
+%253 = llvm.sext %252 : i32 to i64 // known bits: 64'b00000000000000000000000000000000000000000000000000000000????????
 ```
+
+If my analysis might save a hectobyte on 10 billion strangers' phones, I'll have saved about a terabyte worldwide... but I'm still pretty happy about it.
