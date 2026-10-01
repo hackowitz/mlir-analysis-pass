@@ -1,11 +1,8 @@
-# MLIR out-of-tree dataflow analysis template
+# Known Bits Analysis
 
-A starting point for writing an MLIR dataflow analysis as a loadable `mlir-opt`
-plugin, with no LLVM source tree required and nothing to patch upstream.
+An MLIR dataflow analysis as a loadable `mlir-opt` plugin, with no LLVM source tree required and nothing to patch upstream.
 
-The included analysis, `zero-analysis`, decides which integer values in the LLVM
-dialect are known to be zero. It has exactly two transfer rules and is meant to
-be replaced: the point is the scaffolding around it.
+The included analysis, `known-bits-analysis`, decides fore each bit which integer values in the LLVM dialect are known to be $\hat{0}$, $\hat{1}$, $\bot$ (neither 1 nor 0, as in unreached code), or $\top$ (either 1 or 0, as in unknown reached values).
 
 ## Building
 
@@ -45,12 +42,12 @@ version does not match what you are building against.
 annotated listing on stdout. Or invoke `mlir-opt` yourself:
 
 ```sh
-mlir-opt --load-pass-plugin=build/ZeroAnalysis.so \
-         --pass-pipeline='builtin.module(zero-analysis)' \
+mlir-opt --load-pass-plugin=build/KnownBitsAnalysis.so \
+         --pass-pipeline='builtin.module(known-bits-analysis)' \
          input.mlir -o /dev/null
 ```
 
-using `build/ZeroAnalysis.dylib` on macOS. The pass leaves the IR unchanged and
+using `build/KnownBitsAnalysis.dylib` on macOS. The pass leaves the IR unchanged and
 writes it to stdout as usual; the annotated view goes to stderr, so the two
 streams can be redirected independently. Annotations are comments, so the
 annotated listing is still valid MLIR. Values at top or bottom are left
@@ -66,40 +63,36 @@ clang -S -emit-llvm -o - input.c | mlir-translate --import-llvm
 
 Two files hold the analysis; the rest is reusable scaffolding.
 
-| File | |
-|---|---|
-| `ZeroDomain.h` | The abstract domain: the lattice elements and their join. |
-| `ZeroAnalysis.cpp` | The transfer function: two rules, plus a default. |
-| `ZeroAnalysis.h` | Ties the domain to MLIR's sparse forward analysis. |
-| `Annotate.{h,cpp}` | Prints IR with a comment on each value. Domain-agnostic. |
-| `Plugin.cpp` | The pass, the solver setup, and the `mlir-opt` entry point. |
-| `cmake/RunTest.cmake` | The test runner. |
+| File                    |                                                             |
+| ----------------------- | ----------------------------------------------------------- |
+| `KnownBitsDomain.h`     | The abstract domain: the lattice elements and their join.   |
+| `KnownBitsAnalysis.cpp` | The transfer function: two rules, plus a default.           |
+| `KnownBitsAnalysis.h`   | Ties the domain to MLIR's sparse forward analysis.          |
+| `Annotate.{h,cpp}`      | Prints IR with a comment on each value. Domain-agnostic.    |
+| `Plugin.cpp`            | The pass, the solver setup, and the `mlir-opt` entry point. |
+| `cmake/RunTest.cmake`   | The test runner.                                            |
 
-To build a different analysis, replace `ZeroDomain.h` and the transfer
-functions in `ZeroAnalysis.cpp`. To rename the whole thing, rename the files,
-the `zero` namespace, and the three places `ZeroAnalysis` and `zero-analysis`
+To build a different analysis, replace `KnownBitsDomain.h` and the transfer
+functions in `KnownBitsAnalysis.cpp`. To rename the whole thing, rename the files,
+the `known-bits` namespace, and the three places `KnownBitsAnalysis` and `known-bits-analysis`
 appear in `CMakeLists.txt` and `Plugin.cpp`.
 
 ## Tests
 
-`test/zero.mlir` exercises every transfer rule. `test/zero.expected` lists
-facts that must appear in the output, and — with a leading `!` — facts that
-must not. The negative checks are the ones that matter: an unsound transfer
-function still produces plausible-looking output, and only a test that pins
-down what the analysis must *not* claim will catch it.
+`test/known-bits.mlir` exercises some subset (since $\bot \sqsubseteq \top$) $ of the transfer rules. `test/known-bits.expected` lists facts that must appear in the output, and — with a leading `!` — facts that must not. The negative checks are the ones that matter: an unsound transfer function still produces plausible-looking output, and only a test that pins down what the analysis must *not* claim will catch it.
 
 Note that MLIR's printer renumbers SSA values, so the checks are written
-against operation text rather than the names in `zero.mlir`. After adding or
-reordering operations, regenerate with `./run.sh test/zero.mlir`.
+against operation text rather than the names in `known-bits.mlir`. After adding or
+reordering operations, regenerate with `./run.sh test/known-bits.mlir`.
 
 ## Notes on portability
 
 Most of the platform-specific knowledge lives in `CMakeLists.txt`, next to the
 code it affects. The parts worth knowing about:
 
-**The plugin's file name differs.** It is `ZeroAnalysis.dylib` on macOS and
-`ZeroAnalysis.so` on Linux and WSL2. Nothing in this project spells that out:
-CMake is asked via `$<TARGET_FILE:ZeroAnalysis>`, and `run.sh` probes for both.
+**The plugin's file name differs.** It is `KnownBitsAnalysis.dylib` on macOS and
+`KnownBitsAnalysis.so` on Linux and WSL2. Nothing in this project spells that out:
+CMake is asked via `$<TARGET_FILE:KnownBitsAnalysis>`, and `run.sh` probes for both.
 
 **Linking a plugin on macOS needs special flags.** The plugin deliberately
 leaves its MLIR symbols undefined, to be resolved from the `mlir-opt` process
@@ -129,30 +122,50 @@ repository is cloned by a Windows git and built inside WSL2.
 `Plugin.cpp` loads three analyses into one solver. `DeadCodeAnalysis` supplies
 reachability — without it the solver must assume every branch is taken — and
 `SparseConstantPropagation` resolves branch conditions on its behalf. These are
-prerequisites for a precise result, not optional extras. `ZeroAnalysis` then
-propagates zeroness through operations and block arguments until the solver
+prerequisites for a precise result, not optional extras. `KnownBitsAnalysis` then
+propagates known bits through operations and block arguments until the solver
 reaches a fixed point, which is when the pass queries it.
 
-The transfer function has two rules, one of each kind an analysis needs:
+The transfer function has rules to abstractly evaluate MLIR operations on values in our abstract domain. 
+- Constant and zero operations have all bits known as written, and are the entry to our abstract domain from concrete values - either from constants in the source code or as outputs of `SparseConstantPropagation`. Without some rule of this kind there would be no facts to propagate at all.
+- The sprawling nested `if`/`else` and `switch` block in `KnownBitsAnalysis::visitOperation` matches a LLVM operation to the corresponding operator or method of our abstract domain `KnownBitsState`.
+- Everything else is unknown. This is always sound, just imprecise - `llvm.load`, for example, produces a value that might be knowable under some other analysis, but all we can guarantee is that it's within $\top$.
+- The domain's fourth element, bottom, means "not yet proved reachable"; the solver starts everything there and raises it as facts arrive, which is what makes the fixed-point iteration terminate.
 
-- **Constants** are zero or nonzero as written. This is the only rule that does
-  not consult its operands, and without some rule of this kind there would be
-  no facts to propagate at all.
-- **`x & y` is zero if either operand is zero**, because a zero operand clears
-  every bit. Note what this does not say: two nonzero operands prove nothing,
-  since `1 & 2` is `0`.
+The analysis is intraprocedural. It does not refine facts on branch conditions, so a value tested against zero is not known nonzero on the taken edge. This is a natural extension, but not within scope of the homework.
 
-Everything else is unknown. That is always sound, just imprecise — `llvm.or`
-and `llvm.add` are left unhandled in the test file precisely so their output
-shows what "unknown" looks like. Adding a third rule should be a matter of
-adding a third `if`.
+## My Results
 
-Values reaching the analysis from outside — function arguments, and results of
-any operation without a rule — start at top. The domain's fourth element,
-bottom, means "not yet proved reachable"; the solver starts everything there
-and raises it as facts arrive, which is what makes the fixed-point iteration
-terminate.
+The analysis was run on the `sqlite3` v3.53.4 source code. For convenience and reproducability, [test/sqlite3.c](test/sqlite3.c), [test/sqlite3.ll](test/sqlite3.ll), and [test/sqlite3.mlir](test/sqlite3.mlir) are included in this repository. The analysis results are tracked as [test/sqlite3.known-bits.mlir](test/sqlite3.known-bits.mlir).
 
-The analysis is intraprocedural. It does not refine facts on branch conditions,
-so a value tested against zero is not known nonzero on the taken edge — that,
-and a rule for `llvm.or`, are the natural first extensions.
+Known bit results are appended as comments in the MLIR file, using the verilog-style binary representation. `?` represents $\top$ (top), and `!` represents $\bot$ (bottom). `!` in the output indicates an error, since no reached value can be neither 0 nor 1.  For example `// known bits: 8'b000001?!` is an 8-bit value with the first five bits known to be 0, then one bit known to be 1, then one unknown bit, and lastly one impossible/invalid/unreachable bit (which is nonsensical and should not occur). Trivial $\top$ and $\bot$ numbers are omitted for clarity.
+
+The easiest way to review results is with `grep`:
+```sh
+# 1: list all operations producing known bits
+grep -Pn 'known bits: \d+.b[01?!]+$' ./test/sqlite3.known-bits.mlir
+# 2: count home many operations produce known bits (35648/352774 at time of writing, a little over 10% of all ops)
+!1 | wc -l
+# 3: Exclude trivial or uninteresting known bits, like those from sign extension.
+!1 | grep -Pv '(constant|zext|sext|trunc)'
+# 4: Search instead for numbers with _all_ bits known:
+grep -Pn '// known bits: \d+.b[01]+$' ./test/sqlite3.known-bits.mlir
+# 5: or for unknown bits among known bits
+grep -Pn '// known bits: \d+.b[01?!]*[01]+[?!]+[01]+[01?!]*$' ./test/sqlite3.known-bits.mlir
+# 6: or for known bits among unknown bits
+grep -Pn '// known bits: \d+.b[01?!]*[?!]+[01]+[?!]+[01?!]*$' ./test/sqlite3.known-bits.mlir
+```
+These can be combined easily to show more specific combinations, for example finding non-trivial constants:
+```llvm
+%186 = llvm.and %185, %1 : i32 // known bits: 32'b00000000000000000000000000000000
+%187 = llvm.icmp "eq" %186, %1 : i32 // known bits: 1'b1
+```
+These numbers look uninteresting at first, until we realize constant propagation didn't catch them - and `%187` is a branch condition that proves dead code that the dead code analysis didn't find!
+
+Many (tens of thousands) of the other facts don't seem obviously useful at first, but I bet sharing results with an integer range analysis could cough up some more concrete info. Many seem to load from memory, set or unset a bit, then store back to memory. A memory-aware analysis might bring out a lot more known bit checks and the like:
+```llvm
+%142 = llvm.add %11, %141 overflow<nsw> : i32 // known bits: 32'b00000000000000000000000?1???????
+%24 = llvm.and %23, %4 : i32 // known bits: 32'b00000?0000?000000000000000000000
+%153 = llvm.and %152, %31 : i8 // known bits: 8'b????0???
+%154 = llvm.or %153, %32 : i8 // known bits: 8'b????1???
+```
