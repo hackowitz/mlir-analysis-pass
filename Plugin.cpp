@@ -9,6 +9,7 @@
 
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
@@ -44,32 +45,74 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
     solver.load<known_bits::KnownBitsAnalysis>();
 
     if (failed(solver.initializeAndRun(getOperation()))) {
-      getOperation().emitError("zero analysis failed to reach a fixed point");
+      getOperation().emitError("known bits analysis failed to reach a fixed point");
       return signalPassFailure();
     }
 
-    // Query states only now that the solver has converged.
-    auto describe = [&](Value value, AsmState &asmState) -> std::string {
-      const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
-      std::string description;
-      if (lattice) {
-        llvm::raw_string_ostream os(description);
-        auto state = lattice->getValue();
-        if (state.isInteresting())
-          os << "known bits: " << state;
-        // // Bottom says nothing worth commenting, but top says I at least moved up the lattice
-        // else if (state.isTop())
-        //   os << "known bits: \u22a4";
-      }
-      return description;
+    struct Target {
+      Value value;
+      known_bits::KnownBitsState state;
     };
+    SmallVector<Target> targets;
 
-    // stderr, so that mlir-opt's stdout stays the unmodified IR and the two can
-    // be redirected independently.
-    known_bits::printAnnotated(getOperation(), describe, llvm::errs());
+    // Two loops: one to find targets and one to modify them, since we can't modify the iterator
+    // while looping through it
+    getOperation()->walk([&](Operation *op) {
+      for (Value value : op->getResults()) {
+        const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
+        if (lattice && lattice->getValue().isInteresting())
+          targets.push_back({value, lattice->getValue()});
+      }
+    });
+    for (const auto &[value, state] : targets) {
+      Location loc = value.getDefiningOp()->getLoc();
+      Type type = value.getType();
+      OpBuilder builder(value.getContext());
 
-    // This pass only reads.
-    markAllAnalysesPreserved();
+      // New control flow starting at the value to test. The check runs like:
+      // ex: if ((value ^ expected) & mask != 0) panic()
+      builder.setInsertionPointAfter(value.getDefiningOp());
+      Block *block = builder.getBlock();
+      Block *okBlock = block->splitBlock(builder.getInsertionPoint());
+      Block *failBlock = builder.createBlock(okBlock);
+      builder.setInsertionPointToEnd(block);
+      // ex:     (value ^ expected)
+      Value expected = LLVM::ConstantOp::create(
+          builder, loc, type, builder.getIntegerAttr(type, state.ones & ~state.zeroes)
+      );
+      Value diff = LLVM::XOrOp::create(builder, loc, value, expected);
+      // ex:     .................. & mask
+      Value mask = LLVM::ConstantOp::create(
+          builder, loc, type, builder.getIntegerAttr(type, state.zeroes ^ state.ones)
+      );
+      Value mismatch = LLVM::AndOp::create(builder, loc, diff, mask);
+      // ex:    (......................... != 0)
+      Value zero = LLVM::ConstantOp::create(builder, loc, type, builder.getIntegerAttr(type, 0));
+      Value fail = LLVM::ICmpOp::create(builder, loc, LLVM::ICmpPredicate::ne, mismatch, zero);
+      // ex: if ................................
+      LLVM::CondBrOp::create(builder, loc, fail, failBlock, okBlock);
+      // ex: ................................... panic()
+      builder.setInsertionPointToEnd(failBlock);
+      LLVM::UnreachableOp::create(builder, loc);
+    }
+
+    //   // Stderr, so that mlir-opt's stdout stays the unmodified IR and the two can
+    //   // be redirected independently.
+    //   known_bits::printAnnotated(
+    //       getOperation(),
+    //       [&](Value value, AsmState &asmState) -> std::string {
+    //         const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
+    //         std::string description;
+    //         if (lattice) {
+    //           llvm::raw_string_ostream os(description);
+    //           auto state = lattice->getValue();
+    //           if (state.isInteresting())
+    //             os << "known bits: " << state;
+    //         }
+    //         return description;
+    //       },
+    //       llvm::errs()
+    //   );
   }
 };
 

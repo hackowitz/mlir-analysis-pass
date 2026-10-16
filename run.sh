@@ -31,6 +31,7 @@ fi
 
 # stdout is the unchanged IR and stderr is the annotated listing; send the
 # listing to this script's stdout so it can be piped or paged.
-mlir-opt --load-pass-plugin="$PLUGIN" \
-         --pass-pipeline='builtin.module(known-bits-analysis)' \
-         "$@" 2>&1 1>/dev/null
+mlir-opt-22 \
+  --load-pass-plugin="$PLUGIN" \
+  --pass-pipeline='builtin.module(known-bits-analysis)' \
+  "@" 2>&1 1>/dev/null

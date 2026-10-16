@@ -61,7 +61,7 @@ LogicalResult KnownBitsAnalysis::visitOperation(
     // For a load op we at least know the bit width
     known = KnownBitsState::top(nbits);
   else if (op->getNumOperands()) {
-    // Remaining cases are operations on abstract values, startign with unary opernads
+    // Remaining cases are operations on abstract values, starting with unary opernads
     // Stupid sanity check - does anything ever not have operands?
 
     // exit early on unreachable code
