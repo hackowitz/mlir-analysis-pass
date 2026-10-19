@@ -53,14 +53,15 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       Value value;
       known_bits::KnownBitsState state;
     };
-    SmallVector<Target> targets;
 
     // Two loops: one to find targets and one to modify them, since we can't modify the iterator
     // while looping through it
+    SmallVector<Target> targets;
     getOperation()->walk([&](Operation *op) {
       for (Value value : op->getResults()) {
         const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
-        if (lattice && lattice->getValue().isInteresting())
+        if (lattice && lattice->getValue().isInteresting() &&
+            !isa<LLVM::ConstantOp>(value.getDefiningOp()))
           targets.push_back({value, lattice->getValue()});
       }
     });
@@ -96,23 +97,23 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       LLVM::UnreachableOp::create(builder, loc);
     }
 
-    //   // Stderr, so that mlir-opt's stdout stays the unmodified IR and the two can
-    //   // be redirected independently.
-    //   known_bits::printAnnotated(
-    //       getOperation(),
-    //       [&](Value value, AsmState &asmState) -> std::string {
-    //         const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
-    //         std::string description;
-    //         if (lattice) {
-    //           llvm::raw_string_ostream os(description);
-    //           auto state = lattice->getValue();
-    //           if (state.isInteresting())
-    //             os << "known bits: " << state;
-    //         }
-    //         return description;
-    //       },
-    //       llvm::errs()
-    //   );
+    // Stderr, so that mlir-opt's stdout stays the unmodified IR and the two can
+    // be redirected independently.
+    known_bits::printAnnotated(
+        getOperation(),
+        [&](Value value, AsmState &asmState) -> std::string {
+          const auto *lattice = solver.lookupState<known_bits::KnownBitsLattice>(value);
+          std::string description;
+          if (lattice) {
+            llvm::raw_string_ostream os(description);
+            auto state = lattice->getValue();
+            if (state.isInteresting())
+              os << "known bits: " << state;
+          }
+          return description;
+        },
+        llvm::errs()
+    );
   }
 };
 
