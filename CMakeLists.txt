@@ -100,9 +100,9 @@ add_definitions(${LLVM_DEFINITIONS})
 # ask CMake via $<TARGET_FILE:KnownBitsAnalysis>, or let run.sh probe for it.
 #===----------------------------------------------------------------------===#
 add_llvm_library(KnownBitsAnalysis MODULE PARTIAL_SOURCES_INTENDED
-  KnownBitsAnalysis.cpp
-  Annotate.cpp
-  Plugin.cpp
+  src/KnownBitsAnalysis.cpp
+  src/Annotate.cpp
+  src/Plugin.cpp
   PLUGIN_TOOL mlir-opt
 )
 
