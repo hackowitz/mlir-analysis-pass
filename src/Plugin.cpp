@@ -94,6 +94,7 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       LLVM::CondBrOp::create(builder, loc, fail, failBlock, okBlock);
       // ex: ................................... panic()
       builder.setInsertionPointToEnd(failBlock);
+      LLVM::CallOp::create(builder, loc, getAbortFunction(getOperation()), ValueRange{});
       LLVM::UnreachableOp::create(builder, loc);
     }
 
@@ -114,6 +115,16 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
         },
         llvm::errs()
     );
+  }
+
+  LLVM::LLVMFuncOp getAbortFunction(ModuleOp module) {
+    if (auto func = module.lookupSymbol<LLVM::LLVMFuncOp>("abort"))
+      return func;
+
+    OpBuilder builder(module.getBodyRegion());
+    auto voidType = LLVM::LLVMVoidType::get(module.getContext());
+    auto fnType = LLVM::LLVMFunctionType::get(voidType, {});
+    return LLVM::LLVMFuncOp::create(builder, module.getLoc(), "abort", fnType);
   }
 };
 
