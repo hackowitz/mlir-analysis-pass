@@ -121,13 +121,13 @@ public:
 
   /// @brief Abstrat operator - bits are 0 if either side is 0 and 1 if both sides are 1
   KnownBitsState operator&(const KnownBitsState &other) const {
-    return KnownBitsState(MIN(nbits, other.nbits), zeroes | other.zeroes, ones & other.ones);
+    // inject error on purpose
+    return KnownBitsState(MIN(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
   }
 
   /// @brief Abstrat operator - bits are 1 if either side is 1 and 0 if both sides are 0
   KnownBitsState operator|(const KnownBitsState &other) const {
-    return KnownBitsState(MIN(nbits, other.nbits), ~0ULL, 0ULL);
-    // return KnownBitsState(MIN(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
+    return KnownBitsState(MIN(nbits, other.nbits), zeroes & other.zeroes, ones | other.ones);
   }
 
   /// @brief Abstract operator - bits are 0 if sides are the same and 1 if they are different

@@ -10,6 +10,8 @@ clang-22 $(python3-config --cflags) -g -S -emit-llvm -fPIC \
 clang-22 $(python3-config --cflags) -g -S -emit-llvm -fPIC \
     "${SRC_DIR}"/_regex_unicode.c \
     -o "${BUILD_DIR}"/_regex_unicode.ll
+clang-22 -g -S -emit-llvm src/assertions.c \
+    -o "${BUILD_DIR}/_regex_assertions.ll"
 llvm-link-22 "${BUILD_DIR}"/_regex*.ll -S \
     -o "${BUILD_DIR}"/combined.ll
 mlir-translate-22 --import-llvm "${BUILD_DIR}"/combined.ll \

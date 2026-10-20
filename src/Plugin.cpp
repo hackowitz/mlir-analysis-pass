@@ -49,6 +49,7 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
       return signalPassFailure();
     }
 
+    auto assert_known_bits = getOperation().lookupSymbol<LLVM::LLVMFuncOp>("assert_known_bits");
     struct Target {
       Value value;
       known_bits::KnownBitsState state;
@@ -65,37 +66,30 @@ struct KnownBitsAnalysisPass : PassWrapper<KnownBitsAnalysisPass, OperationPass<
           targets.push_back({value, lattice->getValue()});
       }
     });
+
     for (const auto &[value, state] : targets) {
       Location loc = value.getDefiningOp()->getLoc();
-      Type type = value.getType();
       OpBuilder builder(value.getContext());
 
       // New control flow starting at the value to test. The check runs like:
       // ex: if ((value ^ expected) & mask != 0) panic()
       builder.setInsertionPointAfter(value.getDefiningOp());
-      Block *block = builder.getBlock();
-      Block *okBlock = block->splitBlock(builder.getInsertionPoint());
-      Block *failBlock = builder.createBlock(okBlock);
-      builder.setInsertionPointToEnd(block);
-      // ex:     (value ^ expected)
+      Value argument = value.getType() == builder.getI64Type()
+                           ? value
+                           : LLVM::ZExtOp::create(builder, loc, builder.getI64Type(), value);
       Value expected = LLVM::ConstantOp::create(
-          builder, loc, type, builder.getIntegerAttr(type, state.ones & ~state.zeroes)
+          builder,
+          loc,
+          builder.getI64Type(),
+          builder.getIntegerAttr(builder.getI64Type(), state.ones & ~state.zeroes)
       );
-      Value diff = LLVM::XOrOp::create(builder, loc, value, expected);
-      // ex:     .................. & mask
       Value mask = LLVM::ConstantOp::create(
-          builder, loc, type, builder.getIntegerAttr(type, state.zeroes ^ state.ones)
+          builder,
+          loc,
+          builder.getI64Type(),
+          builder.getIntegerAttr(builder.getI64Type(), state.zeroes ^ state.ones)
       );
-      Value mismatch = LLVM::AndOp::create(builder, loc, diff, mask);
-      // ex:    (......................... != 0)
-      Value zero = LLVM::ConstantOp::create(builder, loc, type, builder.getIntegerAttr(type, 0));
-      Value fail = LLVM::ICmpOp::create(builder, loc, LLVM::ICmpPredicate::ne, mismatch, zero);
-      // ex: if ................................
-      LLVM::CondBrOp::create(builder, loc, fail, failBlock, okBlock);
-      // ex: ................................... panic()
-      builder.setInsertionPointToEnd(failBlock);
-      LLVM::CallOp::create(builder, loc, getAbortFunction(getOperation()), ValueRange{});
-      LLVM::UnreachableOp::create(builder, loc);
+      LLVM::CallOp::create(builder, loc, assert_known_bits, ValueRange{argument, expected, mask});
     }
 
     // Stderr, so that mlir-opt's stdout stays the unmodified IR and the two can
